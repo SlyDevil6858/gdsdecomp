@@ -38,7 +38,7 @@ jobs:
         id: source
         shell: pwsh
         run: |
-          $source = Join-Path $env:GITHUB_WORKSPACE "game-source/DEWDROP"
+          $source = Join-Path $env:GITHUB_WORKSPACE "game-source"
           New-Item -ItemType Directory -Force recovered | Out-Null
 
           if (Test-Path (Join-Path $source "project.godot")) {

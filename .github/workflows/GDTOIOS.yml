@@ -72,7 +72,34 @@ jobs:
             "EXE_FILE=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           }
 
-      - name: Recover Godot project
+      - name: Install gore
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod "https://api.github.com/repos/figurophobia/gore/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -eq "windows-x86_64.zip" } | Select-Object -First 1
+
+          if (!$asset) {
+            throw "Could not find the Windows x86_64 gore release asset."
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "gore"
+          New-Item -ItemType Directory -Force $installDir | Out-Null
+
+          $archive = Join-Path $env:RUNNER_TEMP "gore.zip"
+          Invoke-WebRequest $asset.browser_download_url -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $installDir -Force
+
+          $gore = Get-ChildItem $installDir -Filter "gore.exe" -Recurse |
+            Select-Object -First 1
+
+          if (!$gore) {
+            throw "gore.exe was not found in the downloaded release."
+          }
+
+          "GORE_EXE=$($gore.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Installed gore $($release.tag_name)"
+
+      - name: Recover and decrypt Godot project with gore
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force recovered | Out-Null
@@ -82,10 +109,20 @@ jobs:
             throw "GDRE Tools executable not found at $gdre"
           }
 
-          & $gdre --headless "--recover=${{ steps.game.outputs.INPUT_FILE }}" "--output=$env:GITHUB_WORKSPACE\recovered"
+          if (!(Test-Path $env:GORE_EXE)) {
+            throw "gore executable not found at $env:GORE_EXE"
+          }
+
+          # gore searches the selected EXE/PCK for the embedded encryption key.
+          # The key itself is not passed as an argument or written to the logs.
+          & $env:GORE_EXE recover "${{ steps.game.outputs.INPUT_FILE }}" -o "$env:GITHUB_WORKSPACE\recovered" --gdre "$gdre"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "gore recovery failed with exit code $LASTEXITCODE."
+          }
 
           if (!(Test-Path "recovered/project.godot")) {
-            throw "GDRE recovery failed: project.godot not found."
+            throw "gore did not produce recovered/project.godot."
           }
 
       - name: Extract original EXE icon

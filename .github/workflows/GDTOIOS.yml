@@ -1,4 +1,4 @@
-name: Recover Godot Game and Build Unsigned iOS IPA
+name: Build Unsigned iOS IPA using GODOT game!
 
 on:
   workflow_dispatch:

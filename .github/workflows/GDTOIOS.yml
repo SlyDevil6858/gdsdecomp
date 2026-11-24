@@ -404,17 +404,29 @@ jobs:
           stub = Path("recovered/ios_steam_stub.gd")
           stub.write_text(
               "extends Node\n\n"
-              "# iOS build stub: Steamworks is unavailable on this platform.\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
               "func steamInit() -> void:\n"
               "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
               "func isSteamRunning() -> bool:\n"
-              "    return false\n\n"
-              "func getAchievement(_achievement_name: String) -> Dictionary:\n"
-              "    return {\"achieved\": false}\n\n"
-              "func setAchievement(_achievement_name: String) -> void:\n"
-              "    pass\n\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
               "func storeStats() -> void:\n"
-              "    pass\n",
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
               encoding="utf-8"
           )
 

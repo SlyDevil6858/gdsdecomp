@@ -34,7 +34,28 @@ jobs:
           lfs: true
           path: game-source
 
+      - name: Check for existing DEWDROP project
+        id: source
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE "game-source/DEWDROP"
+          New-Item -ItemType Directory -Force recovered | Out-Null
+
+          if (Test-Path (Join-Path $source "project.godot")) {
+            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination "recovered" -Recurse -Force
+            }
+
+            "use_existing=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Using the existing DEWDROP Godot project; skipping game extraction."
+          }
+          else {
+            "use_existing=false" >> $env:GITHUB_OUTPUT
+            Write-Host "No DEWDROP/project.godot found; recovering the project from the game files."
+          }
+
       - name: Install GDRE Tools
+        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
@@ -43,6 +64,7 @@ jobs:
           scoop install gdsdecomp
 
       - name: Locate game files
+        if: steps.source.outputs.use_existing != 'true'
         id: game
         shell: pwsh
         run: |
@@ -73,6 +95,7 @@ jobs:
           }
 
       - name: Install gore
+        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           $release = Invoke-RestMethod "https://api.github.com/repos/figurophobia/gore/releases/latest"
@@ -100,6 +123,7 @@ jobs:
           Write-Host "Installed gore $($release.tag_name)"
 
       - name: Recover and decrypt Godot project with gore
+        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force recovered | Out-Null
@@ -126,6 +150,7 @@ jobs:
           }
 
       - name: Extract original EXE icon
+        if: steps.source.outputs.use_existing != 'true'
         if: steps.game.outputs.EXE_FILE != ''
         shell: pwsh
         run: |
@@ -175,6 +200,7 @@ jobs:
           Write-Host "EXE icon extracted to recovered/icon.png"
 
       - name: Set recovered project icon
+        if: steps.source.outputs.use_existing != 'true'
         if: steps.game.outputs.EXE_FILE != ''
         shell: pwsh
         run: |

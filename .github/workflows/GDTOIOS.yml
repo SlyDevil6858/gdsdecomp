@@ -394,44 +394,40 @@ jobs:
           project = Path("recovered/project.godot")
           text = project.read_text(encoding="utf-8")
 
-          # The recovered addon contains Windows binaries only. Its descriptor
-          # also references macOS/Linux libraries that are not in the artifact.
-          # Steam is desktop-only for this iOS build, so remove the addon from
-          # this build copy and provide the small API surface used by the game.
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
           addon = Path("recovered/addons/godotsteam")
           if addon.exists():
               shutil.rmtree(addon)
 
           stub = Path("recovered/ios_steam_stub.gd")
-          stub.write_text("""extends Node
+          stub.write_text(
+              "extends Node\n\n"
+              "# iOS build stub: Steamworks is unavailable on this platform.\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return false\n\n"
+              "func getAchievement(_achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": false}\n\n"
+              "func setAchievement(_achievement_name: String) -> void:\n"
+              "    pass\n\n"
+              "func storeStats() -> void:\n"
+              "    pass\n",
+              encoding="utf-8"
+          )
 
-          # iOS build stub: Steamworks is unavailable on this platform.
-          func steamInit() -> void:
-              pass
-
-          func isSteamRunning() -> bool:
-              return false
-
-          func getAchievement(_achievement_name: String) -> Dictionary:
-              return {"achieved": false}
-
-          func setAchievement(_achievement_name: String) -> void:
-              pass
-
-          func storeStats() -> void:
-              pass
-          """, encoding="utf-8")
-
-          autoload = re.search(r"(?ms)^\\[autoload\\]\\s*\\n(.*?)(?=^\\[|\\Z)", text)
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
           if not autoload:
               raise SystemExit("project.godot has no [autoload] section.")
 
           section = autoload.group(1)
           steam_line = 'Steam="*res://ios_steam_stub.gd"'
-          if re.search(r"(?m)^Steam\\s*=", section):
-              section = re.sub(r"(?m)^Steam\\s*=.*$", steam_line, section)
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
           else:
-              section = section.rstrip() + "\\n" + steam_line + "\\n"
+              section = section.rstrip() + "\n" + steam_line + "\n"
 
           text = text[:autoload.start(1)] + section + text[autoload.end(1):]
           project.write_text(text, encoding="utf-8")

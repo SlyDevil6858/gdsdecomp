@@ -8,6 +8,7 @@ on:
       game_repository:
         description: "Private game repository (owner/repository)"
         required: true
+        default: "SlyDevil6858/myprivaterepo"
         type: string
       game_folder:
         description: "Folder containing the game EXE/PCK"

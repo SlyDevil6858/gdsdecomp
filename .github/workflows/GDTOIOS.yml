@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.game_repository }}
-          token: ${{ secrets.GAME_REPO_TOKEN }}
+          token: ${{ secrets.NEW_PRIV_TOKEN }}
           path: game-source
 
       - name: Install GDRE Tools

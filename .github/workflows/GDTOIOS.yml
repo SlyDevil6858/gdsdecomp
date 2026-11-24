@@ -31,6 +31,7 @@ jobs:
         with:
           repository: ${{ inputs.game_repository }}
           token: ${{ secrets.GAME_REPO_TOKEN }}
+          lfs: true
           path: game-source
 
       - name: Install GDRE Tools
@@ -76,7 +77,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force recovered | Out-Null
 
-          gdre_tools --headless "--recover=${{ steps.game.outputs.INPUT_FILE }}" "--output=$env:GITHUB_WORKSPACE\recovered"
+          $gdre = Join-Path $env:USERPROFILE "scoop\shims\gdre_tools.exe"
+          if (!(Test-Path $gdre)) {
+            throw "GDRE Tools executable not found at $gdre"
+          }
+
+          & $gdre --headless "--recover=${{ steps.game.outputs.INPUT_FILE }}" "--output=$env:GITHUB_WORKSPACE\recovered"
 
           if (!(Test-Path "recovered/project.godot")) {
             throw "GDRE recovery failed: project.godot not found."

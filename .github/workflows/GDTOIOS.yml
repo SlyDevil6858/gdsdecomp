@@ -12,7 +12,7 @@ on:
       game_folder:
         description: "Folder containing the game EXE/PCK"
         required: true
-        default: "game"
+        default: "PC/game/Dewdrop.Dynasty/DewdropDynasty_Windows"
         type: string
 
 permissions:

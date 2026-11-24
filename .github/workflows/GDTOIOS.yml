@@ -381,6 +381,63 @@ jobs:
           path.write_text(text, encoding="utf-8")
           PY
 
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only. Its descriptor
+          # also references macOS/Linux libraries that are not in the artifact.
+          # Steam is desktop-only for this iOS build, so remove the addon from
+          # this build copy and provide the small API surface used by the game.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text("""extends Node
+
+          # iOS build stub: Steamworks is unavailable on this platform.
+          func steamInit() -> void:
+              pass
+
+          func isSteamRunning() -> bool:
+              return false
+
+          func getAchievement(_achievement_name: String) -> Dictionary:
+              return {"achieved": false}
+
+          func setAchievement(_achievement_name: String) -> void:
+              pass
+
+          func storeStats() -> void:
+              pass
+          """, encoding="utf-8")
+
+          autoload = re.search(r"(?ms)^\\[autoload\\]\\s*\\n(.*?)(?=^\\[|\\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\\s*=", section):
+              section = re.sub(r"(?m)^Steam\\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\\n" + steam_line + "\\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
       - name: Import Godot project
         shell: bash
         run: |

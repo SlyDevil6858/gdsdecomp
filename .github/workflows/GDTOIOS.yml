@@ -284,7 +284,6 @@ jobs:
 
           VERSION=$(echo "$RELEASES" | python3 -c '
           import json, sys
-          from packaging.version import Version
 
           minor = sys.argv[1]
           releases = json.load(sys.stdin)
@@ -300,7 +299,7 @@ jobs:
           if not matches:
               raise SystemExit("No stable release found for " + minor)
 
-          print(max(matches, key=Version))
+          print(max(matches, key=lambda v: tuple(int(part) for part in v.split("."))))
           ' "$MINOR")
 
           BASE="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"

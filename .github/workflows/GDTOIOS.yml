@@ -263,7 +263,7 @@ jobs:
   build-ios:
     name: Build Unsigned iOS IPA
     needs: recover
-    runs-on: macos-latest
+    runs-on: xcode-27
 
     steps:
       - name: Download recovered project

@@ -613,9 +613,21 @@ jobs:
           path.write_text("\n".join(output) + "\n", encoding="utf-8")
           PY
 
-          echo "Temporary import autoloads:"
-          sed -n '/^\[autoload\]/,/^\[/p' "$PROJECT_FILE"
-          grep -q '^Global="\*res://UI/Singletons/Global.gd"          "$GODOT_BIN" \
+          python3 - "$PROJECT_FILE" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text(encoding="utf-8")
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("Temporary project has no autoload section.")
+          section = autoload.group(1)
+          for name, target in (("Global", "res://UI/Singletons/Global.gd"), ("Steam", "res://ios_steam_stub.gd")):
+              if not re.search(r"(?m)^" + re.escape(name) + r"=\"\*" + re.escape(target) + r"\"$", section):
+                  raise SystemExit(name + " autoload was not preserved: " + repr(section))
+          print("Temporary import autoloads verified: Global and Steam")
+          PY
+          "$GODOT_BIN" \
             --headless \
             --path "$PROJECT_DIR" \
             --import \

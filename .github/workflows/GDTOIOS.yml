@@ -497,6 +497,7 @@ jobs:
           PY
 
       - name: Set iOS app version and build number
+        id: configure
         shell: bash
         env:
           IOS_BUILD_NUMBER: ${{ inputs.build_number }}
@@ -597,8 +598,8 @@ jobs:
                   preset_lines.insert(end, setting)
                   end += 1
           preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write("GAME_VERSION=" + game_version + "\\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              output_file.write("game_version=" + game_version + "\\n")
           print("iOS marketing version: " + game_version)
           print("iOS build number: " + build_number)
           PY
@@ -738,7 +739,7 @@ jobs:
         shell: bash
         env:
           IOS_BUILD_NUMBER: ${{ inputs.build_number }}
-          GAME_VERSION: ${{ env.GAME_VERSION }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
         run: |
           set -euo pipefail
 
@@ -765,7 +766,7 @@ jobs:
           repository: SlyDevil6858/myprivaterepo
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           tag_name: dewdrop-ios-build-${{ github.run_id }}
-          name: DEWDROP DYNASTY A15 v${{ env.GAME_VERSION }} Build ${{ inputs.build_number }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
           body: |
             Unsigned iOS build of Dewdrop Dynasty.
 
@@ -773,6 +774,6 @@ jobs:
             Support page: ${{ inputs.support_url }}
 
             This release is published privately in the Dewdrop Dynasty game repository.
-          files: DEWDROP_DYNASTY_A15_v${{ env.GAME_VERSION }}_Build_${{ inputs.build_number }}.ipa
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
           fail_on_unmatched_files: true
           make_latest: false

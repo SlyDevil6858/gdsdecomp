@@ -550,17 +550,18 @@ jobs:
 
           PROJECT_DIR="$GITHUB_WORKSPACE/recovered"
 
-          # The source repository may contain a stale or platform-specific
-          # Godot cache. Keep all source files and .import settings, but
-          # rebuild the generated cache from scratch on this runner.
+          # This is a disposable build copy. The committed .import sidecars
+          # were produced by a different importer registry/version: Godot
+          # 4.2.2 reports invalid importers for the entire project when they
+          # are reused. Regenerate metadata from the original source assets.
+          # This does not modify the game repository or its committed sidecars.
           rm -rf "$PROJECT_DIR/.godot"
+          find "$PROJECT_DIR" -type f -name "*.import" -delete
           mkdir -p "$PROJECT_DIR/.godot"
+          echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
 
-          # Godot 4.2.2 does not provide the newer --import command-line
-          # option. Start the editor normally and give its asynchronous
-          # filesystem scan/import queue enough main-loop iterations to finish.
-          # Five minutes is a hard upper bound; the cache check below fails
-          # clearly if the project still has not imported its referenced logo.
+          # Godot 4.2.2 uses the editor filesystem scan/import queue.
+          # Allow up to five minutes for all source assets to be imported.
           "$GODOT_BIN" \
             --headless \
             --editor \

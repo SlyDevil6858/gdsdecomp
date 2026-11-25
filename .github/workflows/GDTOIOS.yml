@@ -575,19 +575,10 @@ jobs:
           rm -rf "$PROJECT_DIR/.godot"
           mkdir -p "$PROJECT_DIR/.godot"
 
-          # First let the editor complete its initial project/filesystem scan in
-          # a normal editor session. On a fresh runner, combining first-time
-          # editor initialization and --import can attempt to load project
-          # resources before the import registry is ready.
-          "$GODOT_BIN" \
-            --headless \
-            --editor \
-            --verbose \
-            --path "$PROJECT_DIR" \
-            --quit
-
-          # Run the explicit import pass only after editor initialization has
-          # completed and its importers have been registered.
+          # Use Godot's dedicated import mode. Do not run the editor with
+          # --quit first: Godot 4.2 can quit after its first main-loop
+          # iteration, aborting the asynchronous filesystem scan before
+          # imported resources (textures, fonts, audio) have been generated.
           "$GODOT_BIN" \
             --headless \
             --editor \

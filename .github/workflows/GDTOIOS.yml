@@ -591,16 +591,13 @@ jobs:
               if stripped.startswith("[") and stripped.endswith("]"):
                   section = stripped
                   skipping_autoload = section == "[autoload]"
-                  # Keep section headers, including [autoload], in the
-                  # temporary project file so Godot can parse its entries.
+                  # Keep the section header, but no autoloads: Global loads
+                  # gameplay scripts that preload textures/audio before the
+                  # cold import has registered their imported resources.
                   output.append(line)
                   continue
 
               if skipping_autoload:
-                  # Keep both required singleton entries. Skip other scene
-                  # autoloads that eagerly load resources before import.
-                  if stripped.startswith(("Global=", "Steam=")):
-                      output.append(line)
                   continue
 
               # Remove project settings that eagerly load imported resources
@@ -620,11 +617,9 @@ jobs:
           autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
           if not autoload:
               raise SystemExit("Temporary project has no autoload section.")
-          section = autoload.group(1)
-          for name, target in (("Global", "res://UI/Singletons/Global.gd"), ("Steam", "res://ios_steam_stub.gd")):
-              if not re.search(r"(?m)^" + re.escape(name) + r"=\"\*" + re.escape(target) + r"\"$", section):
-                  raise SystemExit(name + " autoload was not preserved: " + repr(section))
-          print("Temporary import autoloads verified: Global and Steam")
+          if autoload.group(1).strip():
+              raise SystemExit("Temporary import project still has autoload entries: " + repr(autoload.group(1)))
+          print("Temporary import project verified: autoload section is empty.")
           PY
           "$GODOT_BIN" \
             --headless \

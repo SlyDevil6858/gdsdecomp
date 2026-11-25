@@ -537,7 +537,7 @@ jobs:
               if not found:
                   preset_lines.insert(end, setting)
                   end += 1
-          path.write_text("\\n".join(preset_lines) + "\\n", encoding="utf-8")
+          path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
           print("iOS app version set to " + game_version)
           PY
 

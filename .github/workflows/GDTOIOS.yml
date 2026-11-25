@@ -581,13 +581,13 @@ jobs:
           # files preload textures and audio whose import cache does not exist
           # yet on a clean runner. Hide code/scene definitions for this pass,
           # so Godot imports only the original source assets first.
-          find "$PROJECT_DIR" -type f \( \
+          (cd "$PROJECT_DIR" && find . -type f \( \
             -name '*.gd' -o -name '*.tscn' -o -name '*.tres' -o -name '*.res' \) \
-            -print0 > "$CODE_FILE_LIST"
+            -print0) > "$CODE_FILE_LIST"
           if [ -s "$CODE_FILE_LIST" ]; then
-            tar --null -T "$CODE_FILE_LIST" -cf "$CODE_BACKUP"
+            tar -C "$PROJECT_DIR" --null -T "$CODE_FILE_LIST" -cf "$CODE_BACKUP"
             while IFS= read -r -d '' source_file; do
-              rm -f "$source_file"
+              rm -f "$PROJECT_DIR/"${source_file#./}
             done < "$CODE_FILE_LIST"
           fi
 

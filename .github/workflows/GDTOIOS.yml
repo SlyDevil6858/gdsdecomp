@@ -8,8 +8,13 @@ on:
         required: true
         default: "SlyDevil6858/myprivaterepo"
         type: string
+      decompiled_folder:
+        description: "Folder containing the already-decompiled Godot project (relative to the game repository root)"
+        required: true
+        default: "DEWDROP"
+        type: string
       game_folder:
-        description: "Folder containing the game EXE/PCK"
+        description: "Fallback folder containing the original game EXE/PCK (used only if no decompiled project is found)"
         required: true
         default: "PC/game/Dewdrop.Dynasty/DewdropDynasty_Windows"
         type: string
@@ -38,20 +43,26 @@ jobs:
         id: source
         shell: pwsh
         run: |
-          $source = Join-Path $env:GITHUB_WORKSPACE "game-source"
+          $repoRoot = Join-Path $env:GITHUB_WORKSPACE "game-source"
+          $decompiledPath = Join-Path $repoRoot "${{ inputs.decompiled_folder }}"
           New-Item -ItemType Directory -Force recovered | Out-Null
 
-          if (Test-Path (Join-Path $source "project.godot")) {
-            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+          if (!(Test-Path $decompiledPath -PathType Container)) {
+            throw "Decompiled folder not found: $decompiledPath"
+          }
+
+          $projectFile = Join-Path $decompiledPath "project.godot"
+          if (Test-Path $projectFile -PathType Leaf) {
+            Get-ChildItem -LiteralPath $decompiledPath -Force | ForEach-Object {
               Copy-Item -LiteralPath $_.FullName -Destination "recovered" -Recurse -Force
             }
 
             "use_existing=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Using the existing DEWDROP Godot project; skipping game extraction."
+            Write-Host "Using the supplied decompiled Godot project at $decompiledPath; skipping extraction."
           }
           else {
             "use_existing=false" >> $env:GITHUB_OUTPUT
-            Write-Host "No DEWDROP/project.godot found; recovering the project from the game files."
+            Write-Host "No project.godot found in $decompiledPath; falling back to EXE/PCK recovery."
           }
 
       - name: Install GDRE Tools

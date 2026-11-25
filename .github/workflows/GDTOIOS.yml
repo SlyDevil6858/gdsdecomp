@@ -388,7 +388,7 @@ jobs:
               if not match:
                   continue
               section_end = next(
-                  (j for j in range(i + 1, len(preset_lines) if preset_lines[j].startswith("[")),
+                  (j for j in range(i + 1, len(preset_lines)) if preset_lines[j].startswith("[")),
                   len(preset_lines)
               )
               section = "\n".join(preset_lines[i + 1:section_end])

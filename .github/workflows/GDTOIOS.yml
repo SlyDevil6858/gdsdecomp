@@ -567,76 +567,64 @@ jobs:
           # Restore the exact project file before export.
           PROJECT_FILE="$PROJECT_DIR/project.godot"
           PROJECT_BACKUP="$(mktemp)"
+          CODE_BACKUP="$(mktemp)"
+          CODE_FILE_LIST="$(mktemp)"
           cp "$PROJECT_FILE" "$PROJECT_BACKUP"
-          restore_project_file() {
-            cp "$PROJECT_BACKUP" "$PROJECT_FILE"
-            rm -f "$PROJECT_BACKUP"
-          }
-          trap restore_project_file EXIT
 
-          mkdir -p "$PROJECT_DIR/.ci"
-          cat > "$PROJECT_DIR/.ci/GlobalImportStub.gd" <<'GDSCRIPT'
-          extends Node
-          GDSCRIPT
+          restore_import_inputs() {
+            if [ -s "$CODE_BACKUP" ]; then
+              tar -xf "$CODE_BACKUP" -C "$PROJECT_DIR"
+            fi
+            cp "$PROJECT_BACKUP" "$PROJECT_FILE"
+            rm -f "$PROJECT_BACKUP" "$CODE_BACKUP" "$CODE_FILE_LIST"
+          }
+          trap restore_import_inputs EXIT
+
+          # The editor may parse every script/scene while importing. Those
+          # files preload textures and audio whose import cache does not exist
+          # yet on a clean runner. Hide code/scene definitions for this pass,
+          # so Godot imports only the original source assets first.
+          find "$PROJECT_DIR" -type f \\( \
+            -name '*.gd' -o -name '*.tscn' -o -name '*.tres' -o -name '*.res' \\) \
+            -print0 > "$CODE_FILE_LIST"
+          if [ -s "$CODE_FILE_LIST" ]; then
+            tar --null -T "$CODE_FILE_LIST" -cf "$CODE_BACKUP"
+            while IFS= read -r -d '' source_file; do
+              rm -f "$source_file"
+            done < "$CODE_FILE_LIST"
+          fi
 
           python3 - "$PROJECT_FILE" <<'PY'
-          import re
           import sys
           from pathlib import Path
 
           path = Path(sys.argv[1])
           lines = path.read_text(encoding="utf-8").splitlines()
           output = []
-          section = ""
           skipping_autoload = False
-
           for line in lines:
               stripped = line.strip()
               if stripped.startswith("[") and stripped.endswith("]"):
-                  section = stripped
-                  skipping_autoload = section == "[autoload]"
-                  # Keep the section header, but no autoloads: Global loads
-                  # gameplay scripts that preload textures/audio before the
-                  # cold import has registered their imported resources.
+                  skipping_autoload = stripped == "[autoload]"
                   output.append(line)
                   continue
-
               if skipping_autoload:
-                  if stripped.startswith("Global="):
-                      output.append('Global="*res://.ci/GlobalImportStub.gd"')
                   continue
-
-              # Remove project settings that eagerly load imported resources
-              # during editor startup (cursor, splash, app icons, etc.).
+              # Prevent project settings from eagerly loading res:// resources.
               if "=" in line and "res://" in line:
                   continue
               output.append(line)
-
-          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          path.write_text("\\n".join(output) + "\\n", encoding="utf-8")
           PY
 
-          python3 - "$PROJECT_FILE" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-          text = Path(sys.argv[1]).read_text(encoding="utf-8")
-          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
-          if not autoload:
-              raise SystemExit("Temporary project has no autoload section.")
-          entries = [line.strip() for line in autoload.group(1).splitlines() if line.strip()]
-          if entries != ['Global="*res://.ci/GlobalImportStub.gd"']:
-              raise SystemExit("Temporary import project has unexpected autoload entries: " + repr(entries))
-          print("Temporary import project verified: Global uses the lightweight import stub.")
-          PY
-          "$GODOT_BIN" \
-            --headless \
-            --path "$PROJECT_DIR" \
-            --import \
+          "$GODOT_BIN" \\
+            --headless \\
+            --path "$PROJECT_DIR" \\
+            --import \\
             --verbose
 
-          # Restore before any later export/configuration step. The EXIT trap
-          # also restores the file if the import command fails.
-          restore_project_file
+          # Restore source code/scenes and exact project settings before export.
+          restore_import_inputs
           trap - EXIT
 
           # Godot 4.2 generates the imported cache filename from the import

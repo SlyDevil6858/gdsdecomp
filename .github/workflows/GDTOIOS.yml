@@ -21,7 +21,7 @@ on:
       support_url:
         description: "Optional HTTPS/HTTP webpage opened by the in-game Support button"
         required: false
-        default: ""
+        default: "https://ko-fi.com/slydevil6858"
         type: string
 
 permissions:

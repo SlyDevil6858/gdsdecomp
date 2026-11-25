@@ -256,17 +256,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          # This project was previously verified with Godot 4.2.2.
-          # Download it directly from Godot instead of querying the GitHub
-          # releases API, which returned HTTP 403 on the CI runner.
+          # Keep the editor and export templates on the project's verified version.
+          # Use direct release asset URLs: both the GitHub API and Godot's
+          # download redirect service returned HTTP 403 on this runner.
           VERSION="4.2.2"
+          RELEASE_URL="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"
 
           curl --fail --location --retry 3 --retry-all-errors \
-            "https://downloads.godotengine.org/?flavor=stable&platform=macos.universal&slug=macos.universal.zip&version=${VERSION}" \
+            "${RELEASE_URL}/Godot_v${VERSION}-stable_macos.universal.zip" \
             -o godot.zip
 
           curl --fail --location --retry 3 --retry-all-errors \
-            "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${VERSION}" \
+            "${RELEASE_URL}/Godot_v${VERSION}-stable_export_templates.tpz" \
             -o templates.tpz
 
           unzip -q godot.zip -d godot-app

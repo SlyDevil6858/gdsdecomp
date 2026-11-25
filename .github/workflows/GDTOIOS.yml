@@ -18,6 +18,11 @@ on:
         required: true
         default: 1
         type: number
+      support_url:
+        description: "Optional HTTPS/HTTP webpage opened by the in-game Support button"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -495,14 +500,33 @@ jobs:
         shell: bash
         env:
           IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          IOS_SUPPORT_URL: ${{ inputs.support_url }}
         run: |
           set -euo pipefail
 
           python3 - <<'PY'
+          import json
           import os
           from pathlib import Path
+          from urllib.parse import urlsplit
 
           build_number = os.environ["IOS_BUILD_NUMBER"].strip()
+          support_url = os.environ.get("IOS_SUPPORT_URL", "").strip()
+          if support_url:
+              parsed_support_url = urlsplit(support_url)
+              try:
+                  support_port = parsed_support_url.port
+              except ValueError:
+                  raise SystemExit("Support URL has an invalid port.")
+              if (
+                  parsed_support_url.scheme.lower() not in ("http", "https")
+                  or not parsed_support_url.hostname
+                  or parsed_support_url.username is not None
+                  or parsed_support_url.password is not None
+                  or any(character.isspace() for character in support_url)
+                  or (support_port is not None and not 1 <= support_port <= 65535)
+              ):
+                  raise SystemExit("Support URL must be a valid HTTP or HTTPS webpage URL.")
           if not build_number.isdigit() or int(build_number) < 1:
               raise SystemExit("Build number must be a positive whole number.")
 
@@ -526,15 +550,21 @@ jobs:
           if app_start < 0:
               raise SystemExit("project.godot has no [application] section.")
           app_end = next((i for i in range(app_start + 1, len(project_lines)) if project_lines[i].startswith("[")), len(project_lines))
-          setting = 'config/ios_build_number=' + build_number
-          found = False
-          for i in range(app_start + 1, app_end):
-              if project_lines[i].startswith("config/ios_build_number="):
-                  project_lines[i] = setting
-                  found = True
-                  break
-          if not found:
-              project_lines.insert(app_end, setting)
+          settings_to_write = {
+              "config/ios_build_number": build_number,
+              "config/support_url": json.dumps(support_url),
+          }
+          for key, value in settings_to_write.items():
+              setting = key + "=" + value
+              found = False
+              for i in range(app_start + 1, app_end):
+                  if project_lines[i].startswith(key + "="):
+                      project_lines[i] = setting
+                      found = True
+                      break
+              if not found:
+                  project_lines.insert(app_end, setting)
+                  app_end += 1
           project_path.write_text("\n".join(project_lines) + "\n", encoding="utf-8")
 
           # Set the marketing version to the game version and the iOS build

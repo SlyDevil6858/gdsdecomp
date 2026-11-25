@@ -512,7 +512,7 @@ jobs:
               if line.startswith("var version ="):
                   values["major"] = line.split("=", 1)[1].strip()
               elif line.startswith("var minor_version ="):
-              values["minor"] = line.split("=", 1)[1].strip().strip(\'"\')
+              values["minor"] = line.split("=", 1)[1].strip().strip('"')
           if set(values) != {"major", "minor"}:
               raise SystemExit("Could not read version and minor_version from Global.gd.")
           game_version = values["major"] + "." + values["minor"]

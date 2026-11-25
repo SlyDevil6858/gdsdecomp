@@ -591,22 +591,21 @@ jobs:
               if stripped.startswith("[") and stripped.endswith("]"):
                   section = stripped
                   skipping_autoload = section == "[autoload]"
-                  if skipping_autoload:
-                      continue
-              elif skipping_autoload:
-                  # Keep the Global autoload so GDScript can resolve the
-                  # project's global singleton while scanning scripts.
-                  # Other scene autoloads are skipped because they eagerly
-                  # load imported fonts/resources during the cold import.
-                  if not stripped.startswith("Global="):
-                      continue
-                  skipping_autoload = False
+                  # Keep section headers, including [autoload], in the
+                  # temporary project file so Godot can parse its entries.
+                  output.append(line)
+                  continue
+
+              if skipping_autoload:
+                  # Keep both required singleton entries. Skip other scene
+                  # autoloads that eagerly load resources before import.
+                  if stripped.startswith(("Global=", "Steam=")):
+                      output.append(line)
+                  continue
 
               # Remove project settings that eagerly load imported resources
               # during editor startup (cursor, splash, app icons, etc.).
-              if "=" in line and "res://" in line and not (
-                  section == "[autoload]" and stripped.startswith(("Global=", "Steam="))
-              ):
+              if "=" in line and "res://" in line:
                   continue
               output.append(line)
 

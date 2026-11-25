@@ -641,7 +641,7 @@ jobs:
           echo "Imported cache file count: $(find "$IMPORTED_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
           echo "Imported cache sizes and filenames (first 120):"
           if [ -d "$IMPORTED_DIR" ]; then
-            find "$IMPORTED_DIR" -maxdepth 1 -type f -exec stat -f '%z bytes %N' {} \\; | sort | head -n 120
+            find "$IMPORTED_DIR" -maxdepth 1 -type f -exec stat -f '%z bytes %N' {} \; | sort | head -n 120
           else
             echo "The .godot/imported directory was not created."
           fi

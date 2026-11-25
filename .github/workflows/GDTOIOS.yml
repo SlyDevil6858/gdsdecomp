@@ -622,28 +622,56 @@ jobs:
           path.write_text("\n".join(output) + "\n", encoding="utf-8")
           PY
 
+          IMPORT_LOG="$GITHUB_WORKSPACE/godot-import.log"
+          set +e
           "$GODOT_BIN" \
             --headless \
             --path "$PROJECT_DIR" \
             --import \
-            --verbose
+            --verbose 2>&1 | tee "$IMPORT_LOG"
+          GODOT_STATUS=${PIPESTATUS[0]}
+          set -e
 
-          # Restore source code/scenes and exact project settings before export.
+          # Always restore source files before inspecting the result or exiting.
           restore_import_inputs
           trap - EXIT
 
+          IMPORTED_DIR="$PROJECT_DIR/.godot/imported"
+          echo "Godot import process exit status: $GODOT_STATUS"
+          echo "Imported cache file count: $(find "$IMPORTED_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+          echo "Imported cache sizes and filenames (first 120):"
+          if [ -d "$IMPORTED_DIR" ]; then
+            find "$IMPORTED_DIR" -maxdepth 1 -type f -printf '%s bytes %f\\n' | sort | head -n 120
+          else
+            echo "The .godot/imported directory was not created."
+          fi
+
+          echo "Source asset types present in project:"
+          find "$PROJECT_DIR" -type f | awk '
+            /\\.[^./]+$/ { name=$0; sub(/^.*\\./, "", name); count[name]++ }
+            END { for (name in count) print name, count[name] }
+          ' | sort
+
+          echo "Godot import log: diagnostic lines"
+          grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$IMPORT_LOG" | tail -n 100 || true
+          echo "Godot import log: final 100 lines"
+          tail -n 100 "$IMPORT_LOG"
+
+          if [ "$GODOT_STATUS" -ne 0 ]; then
+            echo "Godot asset import failed with exit status $GODOT_STATUS; diagnostics above."
+            exit "$GODOT_STATUS"
+          fi
+
           # Godot 4.2 generates the imported cache filename from the import
           # settings, so don't assume the hash embedded in the .ctex name.
-          LOGO_IMPORT="$(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f \
+          LOGO_IMPORT="$(find "$IMPORTED_DIR" -maxdepth 1 -type f \
             -name 'Firith_Bumper_Logo.png-*.ctex' -print -quit)"
           if [ -z "$LOGO_IMPORT" ] || [ ! -s "$LOGO_IMPORT" ]; then
             echo "Godot import did not create the Firith bumper logo texture."
-            echo "Recent import cache files:"
-            find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f 2>/dev/null | head -n 40 || true
             exit 1
           fi
 
-          echo "Godot import cache verified. Imported files: $(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          echo "Godot import cache verified. Imported files: $(find "$IMPORTED_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
 
       - name: Export iOS Xcode project
         shell: bash

@@ -8,11 +8,6 @@ on:
         required: true
         default: "SlyDevil6858/myprivaterepo"
         type: string
-      decompiled_folder:
-        description: "Folder containing the already-decompiled Godot project (relative to the game repository root)"
-        required: true
-        default: "DEWDROP"
-        type: string
       game_folder:
         description: "Fallback folder containing the original game EXE/PCK (used only if no decompiled project is found)"
         required: true
@@ -39,34 +34,7 @@ jobs:
           lfs: true
           path: game-source
 
-      - name: Check for existing DEWDROP project
-        id: source
-        shell: pwsh
-        run: |
-          $repoRoot = Join-Path $env:GITHUB_WORKSPACE "game-source"
-          $decompiledPath = Join-Path $repoRoot "${{ inputs.decompiled_folder }}"
-          New-Item -ItemType Directory -Force recovered | Out-Null
-
-          if (!(Test-Path $decompiledPath -PathType Container)) {
-            throw "Decompiled folder not found: $decompiledPath"
-          }
-
-          $projectFile = Join-Path $decompiledPath "project.godot"
-          if (Test-Path $projectFile -PathType Leaf) {
-            Get-ChildItem -LiteralPath $decompiledPath -Force | ForEach-Object {
-              Copy-Item -LiteralPath $_.FullName -Destination "recovered" -Recurse -Force
-            }
-
-            "use_existing=true" >> $env:GITHUB_OUTPUT
-            Write-Host "Using the supplied decompiled Godot project at $decompiledPath; skipping extraction."
-          }
-          else {
-            "use_existing=false" >> $env:GITHUB_OUTPUT
-            Write-Host "No project.godot found in $decompiledPath; falling back to EXE/PCK recovery."
-          }
-
       - name: Install GDRE Tools
-        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
@@ -75,7 +43,6 @@ jobs:
           scoop install gdsdecomp
 
       - name: Locate game files
-        if: steps.source.outputs.use_existing != 'true'
         id: game
         shell: pwsh
         run: |
@@ -106,7 +73,6 @@ jobs:
           }
 
       - name: Install gore
-        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           $release = Invoke-RestMethod "https://api.github.com/repos/figurophobia/gore/releases/latest"
@@ -134,7 +100,6 @@ jobs:
           Write-Host "Installed gore $($release.tag_name)"
 
       - name: Recover and decrypt Godot project with gore
-        if: steps.source.outputs.use_existing != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force recovered | Out-Null
@@ -161,7 +126,6 @@ jobs:
           }
 
       - name: Extract original EXE icon
-        if: steps.source.outputs.use_existing != 'true'
         if: steps.game.outputs.EXE_FILE != ''
         shell: pwsh
         run: |
@@ -211,7 +175,6 @@ jobs:
           Write-Host "EXE icon extracted to recovered/icon.png"
 
       - name: Set recovered project icon
-        if: steps.source.outputs.use_existing != 'true'
         if: steps.game.outputs.EXE_FILE != ''
         shell: pwsh
         run: |

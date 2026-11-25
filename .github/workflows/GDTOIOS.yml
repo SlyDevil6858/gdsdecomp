@@ -512,7 +512,7 @@ jobs:
               if line.startswith("var version ="):
                   values["major"] = line.split("=", 1)[1].strip()
               elif line.startswith("var minor_version ="):
-                  values["minor"] = line.split("=", 1)[1].strip().strip("\\\"")
+              values["minor"] = line.split("=", 1)[1].strip().strip(\'"\')
           if set(values) != {"major", "minor"}:
               raise SystemExit("Could not read version and minor_version from Global.gd.")
           game_version = values["major"] + "." + values["minor"]
@@ -535,7 +535,7 @@ jobs:
                   break
           if not found:
               project_lines.insert(app_end, setting)
-          project_path.write_text("\\n".join(project_lines) + "\\n", encoding="utf-8")
+          project_path.write_text("\n".join(project_lines) + "\n", encoding="utf-8")
 
           # Set the marketing version to the game version and the iOS build
           # version to the user-selected build number.
@@ -566,7 +566,7 @@ jobs:
               if not found:
                   preset_lines.insert(end, setting)
                   end += 1
-          preset_path.write_text("\\n".join(preset_lines) + "\\n", encoding="utf-8")
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
           print("iOS marketing version: " + game_version)
           print("iOS build number: " + build_number)
           PY

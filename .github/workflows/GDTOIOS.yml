@@ -347,7 +347,1069 @@ jobs:
           global_path = Path("recovered/UI/Singletons/Global.gd")
           global_text = global_path.read_text(encoding="utf-8")
           major = re.search(r'(?m)^var version\s*=\s*(\d+)\s*$', global_text)
-          minor = re.search(r'(?m)^var minor_version\s*=\s*"?(\d+)"?\s*$', global_text)
+          minor = re.search(r'(?m)^var minor_version\s*=\s*"([0-9]+(?:\.[0-9]+)*)"\s*
+          if not major or not minor:
+              raise SystemExit("Could not read version and minor_version from Global.gd.")
+          game_version = major.group(1) + "." + minor.group(1)
+
+          project_path = Path("recovered/project.godot")
+          project_lines = project_path.read_text(encoding="utf-8").splitlines()
+          if "[application]" not in project_lines:
+              raise SystemExit("project.godot has no [application] section.")
+          app_start = project_lines.index("[application]")
+          app_end = next(
+              (i for i in range(app_start + 1, len(project_lines)) if project_lines[i].startswith("[")),
+              len(project_lines)
+          )
+          settings = {
+              "config/ios_build_number": build_number,
+              "config/support_url": json.dumps(support_url),
+          }
+          for key, value in settings.items():
+              line = key + "=" + value
+              existing = next(
+                  (i for i in range(app_start + 1, app_end) if project_lines[i].startswith(key + "=")),
+                  None
+              )
+              if existing is None:
+                  project_lines.insert(app_end, line)
+                  app_end += 1
+              else:
+                  project_lines[existing] = line
+          project_path.write_text("\n".join(project_lines) + "\n", encoding="utf-8")
+
+          preset_path = Path("recovered/export_presets.cfg")
+          preset_lines = preset_path.read_text(encoding="utf-8").splitlines()
+          preset_index = None
+          preset_name = None
+
+          for i, header in enumerate(preset_lines):
+              match = re.fullmatch(r"\[preset\.(\d+)\]", header)
+              if not match:
+                  continue
+              section_end = next(
+                  (j for j in range(i + 1, len(preset_lines)) if preset_lines[j].startswith("[")),
+                  len(preset_lines)
+              )
+              section = "\n".join(preset_lines[i + 1:section_end])
+              name_match = re.search(r'(?m)^name\s*=\s*"([^"]+)"\s*$', section)
+              platform_match = re.search(r'(?m)^platform\s*=\s*"([^"]+)"\s*$', section)
+              if name_match and (
+                  (platform_match and platform_match.group(1).lower() == "ios")
+                  or name_match.group(1).lower() == "ios"
+              ):
+                  preset_index = match.group(1)
+                  preset_name = name_match.group(1)
+                  break
+
+          if preset_index is None:
+              found = [
+                  line.strip() for line in preset_lines
+                  if line.startswith("name=") or line.startswith("platform=")
+              ]
+              raise SystemExit("No iOS export preset found. Available entries: " + repr(found))
+
+          options_header = "[preset." + preset_index + ".options]"
+          if options_header not in preset_lines:
+              raise SystemExit("The iOS export preset has no options section.")
+
+          options_start = preset_lines.index(options_header) + 1
+          options_end = next(
+              (i for i in range(options_start, len(preset_lines)) if preset_lines[i].startswith("[")),
+              len(preset_lines)
+          )
+          for key, value in (
+              ("application/short_version", game_version),
+              ("application/version", build_number),
+          ):
+              setting = key + "=" + json.dumps(value)
+              existing = next(
+                  (i for i in range(options_start, options_end) if preset_lines[i].startswith(key + "=")),
+                  None
+              )
+              if existing is None:
+                  preset_lines.insert(options_end, setting)
+                  options_end += 1
+              else:
+                  preset_lines[existing] = setting
+
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("game_version=" + game_version + "\n")
+              output.write("ios_preset_name=" + preset_name + "\n")
+
+          print("iOS export preset: " + preset_name)
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
+          PY
+
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text(
+              "extends Node\n\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
+              "func storeStats() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
+              encoding="utf-8"
+          )
+
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\n" + steam_line + "\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --import
+
+      - name: Export iOS Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ios-export
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --export-debug "${{ steps.configure.outputs.ios_preset_name }}" \
+            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+
+          if [ ! -f ios-export/Game.zip ]; then
+            echo "Godot did not create the iOS export ZIP."
+            exit 1
+          fi
+
+          mkdir -p ios-export/project
+          unzip -q ios-export/Game.zip -d ios-export/project
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XCODEPROJ=$(find ios-export/project \
+            -name "*.xcodeproj" -type d | head -n 1)
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Xcode project not found."
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -project "$XCODEPROJ" |
+            python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["project"]["schemes"]
+          if not schemes:
+              raise SystemExit("No Xcode schemes found.")
+          print(schemes[0])
+          ')
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$GITHUB_WORKSPACE/ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
+        run: |
+          set -euo pipefail
+
+          APP=$(find ios-build/Build/Products/Debug-iphoneos \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "Compiled iOS app not found."
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+
+          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          cd ipa
+          zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+
+          echo "Unsigned IPA created: $IPA_NAME"
+
+      - name: Publish IPA to a private release in myprivaterepo
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: SlyDevil6858/myprivaterepo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: dewdrop-ios-build-${{ github.run_id }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          body: |
+            Unsigned iOS build of Dewdrop Dynasty.
+
+            Build number: ${{ inputs.build_number }}
+            Support page: ${{ inputs.support_url }}
+
+            This release is published privately in the Dewdrop Dynasty game repository.
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          fail_on_unmatched_files: true
+          make_latest: false
+, item) for item in section if re.match(r'^\\s*name\\s*=\\s*"([^"]+)"\\s*
+          if header not in preset_lines:
+              raise SystemExit("The iOS export preset has no options section.")
+          start = preset_lines.index(header) + 1
+          end = next((j for j in range(start, len(preset_lines)) if preset_lines[j].startswith("[")), len(preset_lines))
+          for key, value in (("application/short_version", game_version), ("application/version", build_number)):
+              setting = key + '=\"' + value + '\"'
+              found = False
+              for i in range(start, end):
+                  if preset_lines[i].startswith(key + "="):
+                      preset_lines[i] = setting
+                      found = True
+                      break
+              if not found:
+                  preset_lines.insert(end, setting)
+                  end += 1
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              output_file.write("game_version=" + game_version + "\\n")
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
+          PY
+
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text(
+              "extends Node\n\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
+              "func storeStats() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
+              encoding="utf-8"
+          )
+
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\n" + steam_line + "\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --import
+
+      - name: Export iOS Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ios-export
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --export-debug "${{ steps.configure.outputs.ios_preset_name }}" \
+            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+
+          if [ ! -f ios-export/Game.zip ]; then
+            echo "Godot did not create the iOS export ZIP."
+            exit 1
+          fi
+
+          mkdir -p ios-export/project
+          unzip -q ios-export/Game.zip -d ios-export/project
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XCODEPROJ=$(find ios-export/project \
+            -name "*.xcodeproj" -type d | head -n 1)
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Xcode project not found."
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -project "$XCODEPROJ" |
+            python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["project"]["schemes"]
+          if not schemes:
+              raise SystemExit("No Xcode schemes found.")
+          print(schemes[0])
+          ')
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$GITHUB_WORKSPACE/ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
+        run: |
+          set -euo pipefail
+
+          APP=$(find ios-build/Build/Products/Debug-iphoneos \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "Compiled iOS app not found."
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+
+          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          cd ipa
+          zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+
+          echo "Unsigned IPA created: $IPA_NAME"
+
+      - name: Publish IPA to a private release in myprivaterepo
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: SlyDevil6858/myprivaterepo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: dewdrop-ios-build-${{ github.run_id }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          body: |
+            Unsigned iOS build of Dewdrop Dynasty.
+
+            Build number: ${{ inputs.build_number }}
+            Support page: ${{ inputs.support_url }}
+
+            This release is published privately in the Dewdrop Dynasty game repository.
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          fail_on_unmatched_files: true
+          make_latest: false
+, item)), None)
+                  platform_match = next((re.match(r'^\\s*platform\\s*=\\s*"([^"]+)"\\s*
+          if header not in preset_lines:
+              raise SystemExit("The iOS export preset has no options section.")
+          start = preset_lines.index(header) + 1
+          end = next((j for j in range(start, len(preset_lines)) if preset_lines[j].startswith("[")), len(preset_lines))
+          for key, value in (("application/short_version", game_version), ("application/version", build_number)):
+              setting = key + '=\"' + value + '\"'
+              found = False
+              for i in range(start, end):
+                  if preset_lines[i].startswith(key + "="):
+                      preset_lines[i] = setting
+                      found = True
+                      break
+              if not found:
+                  preset_lines.insert(end, setting)
+                  end += 1
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              output_file.write("game_version=" + game_version + "\\n")
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
+          PY
+
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text(
+              "extends Node\n\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
+              "func storeStats() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
+              encoding="utf-8"
+          )
+
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\n" + steam_line + "\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --import
+
+      - name: Export iOS Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ios-export
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --export-debug "iOS" \
+            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+
+          if [ ! -f ios-export/Game.zip ]; then
+            echo "Godot did not create the iOS export ZIP."
+            exit 1
+          fi
+
+          mkdir -p ios-export/project
+          unzip -q ios-export/Game.zip -d ios-export/project
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XCODEPROJ=$(find ios-export/project \
+            -name "*.xcodeproj" -type d | head -n 1)
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Xcode project not found."
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -project "$XCODEPROJ" |
+            python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["project"]["schemes"]
+          if not schemes:
+              raise SystemExit("No Xcode schemes found.")
+          print(schemes[0])
+          ')
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$GITHUB_WORKSPACE/ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
+        run: |
+          set -euo pipefail
+
+          APP=$(find ios-build/Build/Products/Debug-iphoneos \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "Compiled iOS app not found."
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+
+          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          cd ipa
+          zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+
+          echo "Unsigned IPA created: $IPA_NAME"
+
+      - name: Publish IPA to a private release in myprivaterepo
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: SlyDevil6858/myprivaterepo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: dewdrop-ios-build-${{ github.run_id }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          body: |
+            Unsigned iOS build of Dewdrop Dynasty.
+
+            Build number: ${{ inputs.build_number }}
+            Support page: ${{ inputs.support_url }}
+
+            This release is published privately in the Dewdrop Dynasty game repository.
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          fail_on_unmatched_files: true
+          make_latest: false
+, item) for item in section if re.match(r'^\\s*platform\\s*=\\s*"([^"]+)"\\s*
+          if header not in preset_lines:
+              raise SystemExit("The iOS export preset has no options section.")
+          start = preset_lines.index(header) + 1
+          end = next((j for j in range(start, len(preset_lines)) if preset_lines[j].startswith("[")), len(preset_lines))
+          for key, value in (("application/short_version", game_version), ("application/version", build_number)):
+              setting = key + '=\"' + value + '\"'
+              found = False
+              for i in range(start, end):
+                  if preset_lines[i].startswith(key + "="):
+                      preset_lines[i] = setting
+                      found = True
+                      break
+              if not found:
+                  preset_lines.insert(end, setting)
+                  end += 1
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              output_file.write("game_version=" + game_version + "\\n")
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
+          PY
+
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text(
+              "extends Node\n\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
+              "func storeStats() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
+              encoding="utf-8"
+          )
+
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\n" + steam_line + "\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --import
+
+      - name: Export iOS Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ios-export
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --export-debug "iOS" \
+            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+
+          if [ ! -f ios-export/Game.zip ]; then
+            echo "Godot did not create the iOS export ZIP."
+            exit 1
+          fi
+
+          mkdir -p ios-export/project
+          unzip -q ios-export/Game.zip -d ios-export/project
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XCODEPROJ=$(find ios-export/project \
+            -name "*.xcodeproj" -type d | head -n 1)
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Xcode project not found."
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -project "$XCODEPROJ" |
+            python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["project"]["schemes"]
+          if not schemes:
+              raise SystemExit("No Xcode schemes found.")
+          print(schemes[0])
+          ')
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$GITHUB_WORKSPACE/ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
+        run: |
+          set -euo pipefail
+
+          APP=$(find ios-build/Build/Products/Debug-iphoneos \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "Compiled iOS app not found."
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+
+          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          cd ipa
+          zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+
+          echo "Unsigned IPA created: $IPA_NAME"
+
+      - name: Publish IPA to a private release in myprivaterepo
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: SlyDevil6858/myprivaterepo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: dewdrop-ios-build-${{ github.run_id }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          body: |
+            Unsigned iOS build of Dewdrop Dynasty.
+
+            Build number: ${{ inputs.build_number }}
+            Support page: ${{ inputs.support_url }}
+
+            This release is published privately in the Dewdrop Dynasty game repository.
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          fail_on_unmatched_files: true
+          make_latest: false
+, item)), None)
+                  if name_match and ((platform_match and platform_match.group(1).lower() == "ios") or name_match.group(1).lower() == "ios"):
+                      ios_index = line[len("[preset."):-1]
+                      ios_preset_name = name_match.group(1)
+                      break
+          if ios_index is None:
+              available = [line for line in preset_lines if line.startswith("name=") or line.startswith("platform=")]
+              raise SystemExit("Could not find an iOS export preset. Preset entries found: " + repr(available))
+          header = "[preset." + ios_index + ".options]"
+          if header not in preset_lines:
+              raise SystemExit("The iOS export preset has no options section.")
+          start = preset_lines.index(header) + 1
+          end = next((j for j in range(start, len(preset_lines)) if preset_lines[j].startswith("[")), len(preset_lines))
+          for key, value in (("application/short_version", game_version), ("application/version", build_number)):
+              setting = key + '=\"' + value + '\"'
+              found = False
+              for i in range(start, end):
+                  if preset_lines[i].startswith(key + "="):
+                      preset_lines[i] = setting
+                      found = True
+                      break
+              if not found:
+                  preset_lines.insert(end, setting)
+                  end += 1
+          preset_path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              output_file.write("game_version=" + game_version + "\\n")
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
+          PY
+
+      - name: Prepare GodotSteam compatibility for iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import shutil
+
+          project = Path("recovered/project.godot")
+          text = project.read_text(encoding="utf-8")
+
+          # The recovered addon contains Windows binaries only, while its
+          # descriptor also references missing macOS and Linux libraries.
+          # Steamworks is desktop-only for this iOS build.
+          addon = Path("recovered/addons/godotsteam")
+          if addon.exists():
+              shutil.rmtree(addon)
+
+          stub = Path("recovered/ios_steam_stub.gd")
+          stub.write_text(
+              "extends Node\n\n"
+              "# Local iOS achievement storage; this does not connect to Steam.\n"
+              "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "var achievements: Dictionary = {}\n\n"
+              "func _ready() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    if config.load(SAVE_PATH) == OK:\n"
+              "        achievements = config.get_value(\"achievements\", \"unlocked\", {})\n\n"
+              "func steamInit() -> void:\n"
+              "    pass\n\n"
+              "# Return true so the game's Steam-dependent startup check does not abort.\n"
+              "# This means the local compatibility layer is active, not that Steam is running.\n"
+              "func isSteamRunning() -> bool:\n"
+              "    return true\n\n"
+              "func getAchievement(achievement_name: String) -> Dictionary:\n"
+              "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
+              "func setAchievement(achievement_name: String) -> void:\n"
+              "    achievements[achievement_name] = true\n\n"
+              "func storeStats() -> void:\n"
+              "    var config := ConfigFile.new()\n"
+              "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
+              "    var error := config.save(SAVE_PATH)\n"
+              "    if error != OK:\n"
+              "        push_error(\"Could not save local iOS achievements: %s\" % error)\n",
+              encoding="utf-8"
+          )
+
+          autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
+          if not autoload:
+              raise SystemExit("project.godot has no [autoload] section.")
+
+          section = autoload.group(1)
+          steam_line = 'Steam="*res://ios_steam_stub.gd"'
+          if re.search(r"(?m)^Steam\s*=", section):
+              section = re.sub(r"(?m)^Steam\s*=.*$", steam_line, section)
+          else:
+              section = section.rstrip() + "\n" + steam_line + "\n"
+
+          text = text[:autoload.start(1)] + section + text[autoload.end(1):]
+          project.write_text(text, encoding="utf-8")
+          print("Removed desktop GodotSteam binaries and registered the iOS Steam stub.")
+          PY
+
+      - name: Import Godot project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --import
+
+      - name: Export iOS Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ios-export
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$GITHUB_WORKSPACE/recovered" \
+            --export-debug "iOS" \
+            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+
+          if [ ! -f ios-export/Game.zip ]; then
+            echo "Godot did not create the iOS export ZIP."
+            exit 1
+          fi
+
+          mkdir -p ios-export/project
+          unzip -q ios-export/Game.zip -d ios-export/project
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XCODEPROJ=$(find ios-export/project \
+            -name "*.xcodeproj" -type d | head -n 1)
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Xcode project not found."
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -project "$XCODEPROJ" |
+            python3 -c '
+          import json, sys
+          schemes = json.load(sys.stdin)["project"]["schemes"]
+          if not schemes:
+              raise SystemExit("No Xcode schemes found.")
+          print(schemes[0])
+          ')
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$GITHUB_WORKSPACE/ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+          GAME_VERSION: ${{ steps.configure.outputs.game_version }}
+        run: |
+          set -euo pipefail
+
+          APP=$(find ios-build/Build/Products/Debug-iphoneos \
+            -maxdepth 1 -name "*.app" -type d | head -n 1)
+
+          if [ -z "$APP" ]; then
+            echo "Compiled iOS app not found."
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+
+          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          cd ipa
+          zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+
+          echo "Unsigned IPA created: $IPA_NAME"
+
+      - name: Publish IPA to a private release in myprivaterepo
+        uses: softprops/action-gh-release@v3
+        with:
+          repository: SlyDevil6858/myprivaterepo
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          tag_name: dewdrop-ios-build-${{ github.run_id }}
+          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          body: |
+            Unsigned iOS build of Dewdrop Dynasty.
+
+            Build number: ${{ inputs.build_number }}
+            Support page: ${{ inputs.support_url }}
+
+            This release is published privately in the Dewdrop Dynasty game repository.
+          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          fail_on_unmatched_files: true
+          make_latest: false
+, global_text)
           if not major or not minor:
               raise SystemExit("Could not read version and minor_version from Global.gd.")
           game_version = major.group(1) + "." + minor.group(1)

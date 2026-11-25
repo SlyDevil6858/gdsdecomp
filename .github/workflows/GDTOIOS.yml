@@ -605,7 +605,7 @@ jobs:
               # Remove project settings that eagerly load imported resources
               # during editor startup (cursor, splash, app icons, etc.).
               if "=" in line and "res://" in line and not (
-                  section == "[autoload]" and stripped.startswith("Global=")
+                  section == "[autoload]" and stripped.startswith(("Global=", "Steam="))
               ):
                   continue
               output.append(line)

@@ -560,22 +560,69 @@ jobs:
           mkdir -p "$PROJECT_DIR/.godot"
           echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
 
-          # Use Godot's dedicated import mode. Unlike a timed editor session,
-          # --import waits for the filesystem import queue to finish before
-          # exiting, and is the supported headless CI import entry point.
+          # Some project settings and autoloads load res:// assets as soon
+          # as the editor starts. On a cold checkout those PNG/font assets
+          # have not been imported yet, so Godot logs "No loader found"
+          # before its filesystem import queue gets a chance to process them.
+          # Temporarily remove project-level resource references and autoloads
+          # for the import-only pass, then restore the exact project file.
+          PROJECT_FILE="$PROJECT_DIR/project.godot"
+          PROJECT_BACKUP="$(mktemp)"
+          cp "$PROJECT_FILE" "$PROJECT_BACKUP"
+          restore_project_file() {
+            cp "$PROJECT_BACKUP" "$PROJECT_FILE"
+            rm -f "$PROJECT_BACKUP"
+          }
+          trap restore_project_file EXIT
+
+          python3 - "$PROJECT_FILE" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          lines = path.read_text(encoding="utf-8").splitlines()
+          output = []
+          section = ""
+          skipping_autoload = False
+
+          for line in lines:
+              stripped = line.strip()
+              if stripped.startswith("[") and stripped.endswith("]"):
+                  section = stripped
+                  skipping_autoload = section == "[autoload]"
+                  if skipping_autoload:
+                      continue
+              elif skipping_autoload:
+                  continue
+
+              # Remove project settings that eagerly load imported resources
+              # during editor startup (cursor, splash, app icons, etc.).
+              if "=" in line and "res://" in line:
+                  continue
+              output.append(line)
+
+          path.write_text("\\n".join(output) + "\\n", encoding="utf-8")
+          PY
+
+          # --import starts the editor and waits for the resource import queue.
           "$GODOT_BIN" \
             --headless \
             --path "$PROJECT_DIR" \
             --import \
             --verbose
 
-          # Godot can emit importer errors without a useful non-zero exit.
-          # Verify that a known referenced texture was actually imported
-          # before proceeding to export.
-          LOGO_IMPORT="$PROJECT_DIR/.godot/imported/Firith_Bumper_Logo.png-9ea1502aa6cf1f6ea87e09ce11a90d4f.ctex"
-          if [ ! -s "$LOGO_IMPORT" ]; then
-            echo "Godot import did not create the Firith bumper logo texture:"
-            echo "$LOGO_IMPORT"
+          # Restore before any later export/configuration step. The EXIT trap
+          # also restores the file if the import command fails.
+          restore_project_file
+          trap - EXIT
+
+          # Godot 4.2 generates the imported cache filename from the import
+          # settings, so don't assume the hash embedded in the .ctex name.
+          LOGO_IMPORT="$(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f \
+            -name 'Firith_Bumper_Logo.png-*.ctex' -print -quit)"
+          if [ -z "$LOGO_IMPORT" ] || [ ! -s "$LOGO_IMPORT" ]; then
+            echo "Godot import did not create the Firith bumper logo texture."
             echo "Recent import cache files:"
             find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f 2>/dev/null | head -n 40 || true
             exit 1

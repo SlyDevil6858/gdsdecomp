@@ -9,7 +9,7 @@ on:
         default: "SlyDevil6858/myprivaterepo"
         type: string
       game_folder:
-        description: "Fallback folder containing the original game EXE/PCK (used only if no decompiled project is found)"
+        description: "Folder containing the original game EXE/PCK (relative to the game repository root)"
         required: true
         default: "PC/game/Dewdrop.Dynasty/DewdropDynasty_Windows"
         type: string

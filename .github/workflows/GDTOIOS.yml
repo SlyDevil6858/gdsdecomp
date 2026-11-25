@@ -561,11 +561,10 @@ jobs:
           echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
 
           # Some project settings and autoloads load res:// assets as soon
-          # as the editor starts. On a cold checkout those PNG/font assets
-          # have not been imported yet, so Godot logs "No loader found"
-          # before its filesystem import queue gets a chance to process them.
-          # Temporarily remove project-level resource references and autoloads
-          # for the import-only pass, then restore the exact project file.
+          # as the editor starts. On a cold checkout those assets are not
+          # imported yet. Keep the Global singleton name registered for script
+          # parsing, but point it at a minimal stub during this import-only pass.
+          # Restore the exact project file before export.
           PROJECT_FILE="$PROJECT_DIR/project.godot"
           PROJECT_BACKUP="$(mktemp)"
           cp "$PROJECT_FILE" "$PROJECT_BACKUP"
@@ -574,6 +573,11 @@ jobs:
             rm -f "$PROJECT_BACKUP"
           }
           trap restore_project_file EXIT
+
+          mkdir -p "$PROJECT_DIR/.ci"
+          cat > "$PROJECT_DIR/.ci/GlobalImportStub.gd" <<'GDSCRIPT'
+          extends Node
+          GDSCRIPT
 
           python3 - "$PROJECT_FILE" <<'PY'
           import re
@@ -598,6 +602,8 @@ jobs:
                   continue
 
               if skipping_autoload:
+                  if stripped.startswith("Global="):
+                      output.append('Global="*res://.ci/GlobalImportStub.gd"')
                   continue
 
               # Remove project settings that eagerly load imported resources
@@ -617,9 +623,10 @@ jobs:
           autoload = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
           if not autoload:
               raise SystemExit("Temporary project has no autoload section.")
-          if autoload.group(1).strip():
-              raise SystemExit("Temporary import project still has autoload entries: " + repr(autoload.group(1)))
-          print("Temporary import project verified: autoload section is empty.")
+          entries = [line.strip() for line in autoload.group(1).splitlines() if line.strip()]
+          if entries != ['Global="*res://.ci/GlobalImportStub.gd"']:
+              raise SystemExit("Temporary import project has unexpected autoload entries: " + repr(entries))
+          print("Temporary import project verified: Global uses the lightweight import stub.")
           PY
           "$GODOT_BIN" \
             --headless \

@@ -71,7 +71,7 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Drawing
 
-          $source = Join-Path "game-source" "${{ inputs.decompiled_folder }}\IOS_ICON.jpg"
+          $source = Join-Path "game-source" "${{ inputs.decompiled_folder }}\IOS_ICON.png"
           if (!(Test-Path $source -PathType Leaf)) {
             throw "Required app icon not found: $source"
           }
@@ -82,7 +82,7 @@ jobs:
             $cropX = [int](($sourceImage.Width - $side) / 2)
             $cropY = [int](($sourceImage.Height - $side) / 2)
 
-            # iOS requires a 1024x1024 app icon. Convert the supplied JPG to
+            # iOS requires a 1024x1024 app icon. Convert the supplied PNG to
             # an opaque RGB PNG and center-crop only if the source isn't square.
             $bitmap = New-Object System.Drawing.Bitmap(
               1024, 1024,
@@ -141,7 +141,7 @@ jobs:
           }
           Set-Content $project $lines -Encoding utf8
 
-          Write-Host "Using DEWDROP/IOS_ICON.jpg as the iOS app icon (1024x1024 PNG)."
+          Write-Host "Using DEWDROP/IOS_ICON.png as the iOS app icon (1024x1024 PNG)."
 
       - name: Add iOS export preset
         shell: pwsh
@@ -331,7 +331,7 @@ jobs:
                   team_id
               )
 
-          # Use the project icon generated from DEWDROP/IOS_ICON.jpg.
+          # Use the project icon generated from DEWDROP/IOS_ICON.png.
           text = re.sub(
               r'(?m)^(icons/[^=]+)=.*$',
               r'\1=""',

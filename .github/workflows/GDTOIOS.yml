@@ -560,11 +560,8 @@ jobs:
           mkdir -p "$PROJECT_DIR/.godot"
           echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
 
-          # Some project settings and autoloads load res:// assets as soon
-          # as the editor starts. On a cold checkout those assets are not
-          # imported yet. Keep the Global singleton name registered for script
-          # parsing, but point it at a minimal stub during this import-only pass.
-          # Restore the exact project file before export.
+          # Godot may parse scripts and scenes during import; temporarily hide them
+          # so source textures/audio are imported before their preload scripts return.
           PROJECT_FILE="$PROJECT_DIR/project.godot"
           PROJECT_BACKUP="$(mktemp)"
           CODE_BACKUP="$(mktemp)"
@@ -584,8 +581,8 @@ jobs:
           # files preload textures and audio whose import cache does not exist
           # yet on a clean runner. Hide code/scene definitions for this pass,
           # so Godot imports only the original source assets first.
-          find "$PROJECT_DIR" -type f \\( \
-            -name '*.gd' -o -name '*.tscn' -o -name '*.tres' -o -name '*.res' \\) \
+          find "$PROJECT_DIR" -type f \( \
+            -name '*.gd' -o -name '*.tscn' -o -name '*.tres' -o -name '*.res' \) \
             -print0 > "$CODE_FILE_LIST"
           if [ -s "$CODE_FILE_LIST" ]; then
             tar --null -T "$CODE_FILE_LIST" -cf "$CODE_BACKUP"
@@ -614,13 +611,13 @@ jobs:
               if "=" in line and "res://" in line:
                   continue
               output.append(line)
-          path.write_text("\\n".join(output) + "\\n", encoding="utf-8")
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
           PY
 
-          "$GODOT_BIN" \\
-            --headless \\
-            --path "$PROJECT_DIR" \\
-            --import \\
+          "$GODOT_BIN" \
+            --headless \
+            --path "$PROJECT_DIR" \
+            --import \
             --verbose
 
           # Restore source code/scenes and exact project settings before export.

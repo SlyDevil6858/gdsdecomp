@@ -246,6 +246,83 @@ jobs:
 
           Set-Content $project $lines -Encoding utf8
 
+      - name: Prepare uploaded iOS app icon
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+
+          $source = Join-Path "game-source" "${{ inputs.decompiled_folder }}\IOS_ICON.jpg"
+          if (!(Test-Path $source -PathType Leaf)) {
+            throw "Required app icon not found: $source"
+          }
+
+          $sourceImage = [System.Drawing.Image]::FromFile($source)
+          try {
+            $side = [Math]::Min($sourceImage.Width, $sourceImage.Height)
+            $cropX = [int](($sourceImage.Width - $side) / 2)
+            $cropY = [int](($sourceImage.Height - $side) / 2)
+
+            # iOS requires a 1024x1024 app icon. Convert the supplied JPG to
+            # an opaque RGB PNG and center-crop only if the source isn't square.
+            $bitmap = New-Object System.Drawing.Bitmap(
+              1024, 1024,
+              [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
+            )
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.InterpolationMode = "HighQualityBicubic"
+            $graphics.SmoothingMode = "HighQuality"
+            $graphics.PixelOffsetMode = "HighQuality"
+            $graphics.DrawImage(
+              $sourceImage,
+              [System.Drawing.Rectangle]::new(0, 0, 1024, 1024),
+              [System.Drawing.Rectangle]::new($cropX, $cropY, $side, $side),
+              [System.Drawing.GraphicsUnit]::Pixel
+            )
+            $bitmap.Save(
+              "$env:GITHUB_WORKSPACE\recovered\icon.png",
+              [System.Drawing.Imaging.ImageFormat]::Png
+            )
+            $graphics.Dispose()
+            $bitmap.Dispose()
+          }
+          finally {
+            $sourceImage.Dispose()
+          }
+
+          $project = "recovered/project.godot"
+          $lines = [System.Collections.Generic.List[string]]::new()
+          (Get-Content $project) | ForEach-Object { $lines.Add($_) }
+
+          $start = $lines.IndexOf("[application]")
+          if ($start -lt 0) {
+            $lines.Add("")
+            $lines.Add("[application]")
+            $start = $lines.Count - 1
+          }
+
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\[') {
+              $end = $i
+              break
+            }
+          }
+
+          $found = $false
+          for ($i = $start + 1; $i -lt $end; $i++) {
+            if ($lines[$i] -match '^config/icon=') {
+              $lines[$i] = 'config/icon="res://icon.png"'
+              $found = $true
+              break
+            }
+          }
+          if (!$found) {
+            $lines.Insert($start + 1, 'config/icon="res://icon.png"')
+          }
+          Set-Content $project $lines -Encoding utf8
+
+          Write-Host "Using DEWDROP/IOS_ICON.jpg as the iOS app icon (1024x1024 PNG)."
+
       - name: Add iOS export preset
         shell: pwsh
         run: |
@@ -399,7 +476,7 @@ jobs:
                   team_id
               )
 
-          # Use the recovered EXE icon through Godot's project icon fallback.
+          # Use the project icon generated from DEWDROP/IOS_ICON.jpg.
           text = re.sub(
               r'(?m)^(icons/[^=]+)=.*$',
               r'\1=""',

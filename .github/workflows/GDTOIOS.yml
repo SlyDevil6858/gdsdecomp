@@ -594,7 +594,13 @@ jobs:
                   if skipping_autoload:
                       continue
               elif skipping_autoload:
-                  continue
+                  # Keep the Global autoload so GDScript can resolve the
+                  # project's global singleton while scanning scripts.
+                  # Other scene autoloads are skipped because they eagerly
+                  # load imported fonts/resources during the cold import.
+                  if not stripped.startswith("Global="):
+                      continue
+                  skipping_autoload = False
 
               # Remove project settings that eagerly load imported resources
               # during editor startup (cursor, splash, app icons, etc.).

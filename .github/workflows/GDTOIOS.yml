@@ -567,11 +567,34 @@ jobs:
         run: |
           set -euo pipefail
 
+          PROJECT_DIR="$GITHUB_WORKSPACE/recovered"
+
+          # The source repository may contain a stale or platform-specific
+          # Godot cache. Keep all source files and .import settings, but
+          # rebuild the generated cache from scratch on this runner.
+          rm -rf "$PROJECT_DIR/.godot"
+          mkdir -p "$PROJECT_DIR/.godot"
+
           "$GODOT_BIN" \
             --headless \
             --editor \
-            --path "$GITHUB_WORKSPACE/recovered" \
+            --verbose \
+            --path "$PROJECT_DIR" \
             --import
+
+          # Godot can emit importer errors without a useful non-zero exit.
+          # Verify that a known referenced texture was actually imported
+          # before proceeding to export.
+          LOGO_IMPORT="$PROJECT_DIR/.godot/imported/Firith_Bumper_Logo.png-9ea1502aa6cf1f6ea87e09ce11a90d4f.ctex"
+          if [ ! -s "$LOGO_IMPORT" ]; then
+            echo "Godot import did not create the Firith bumper logo texture:"
+            echo "$LOGO_IMPORT"
+            echo "Recent import cache files:"
+            find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f 2>/dev/null | head -n 40 || true
+            exit 1
+          fi
+
+          echo "Godot import cache verified. Imported files: $(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f | wc -l | tr -d ' ')"
 
       - name: Export iOS Xcode project
         shell: bash

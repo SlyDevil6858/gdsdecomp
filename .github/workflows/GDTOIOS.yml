@@ -28,8 +28,8 @@ permissions:
   contents: read
 
 jobs:
-  recover:
-    name: Recover Godot Project
+  prepare:
+    name: Prepare Decompiled Godot Project
     runs-on: windows-latest
 
     outputs:
@@ -44,8 +44,7 @@ jobs:
           lfs: true
           path: game-source
 
-      - name: Check for decompiled Godot project
-        id: source
+      - name: Stage existing decompiled Godot project
         shell: pwsh
         run: |
           $repoRoot = Join-Path $env:GITHUB_WORKSPACE "game-source"
@@ -65,196 +64,7 @@ jobs:
             Copy-Item -LiteralPath $_.FullName -Destination "recovered" -Recurse -Force
           }
 
-          "use_existing=true" >> $env:GITHUB_OUTPUT
-          Write-Host "Using the decompiled Godot project at $decompiledPath."
-
-      - name: Install GDRE Tools
-        if: steps.source.outputs.use_existing != 'true'
-        shell: pwsh
-        run: |
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-          Invoke-RestMethod https://get.scoop.sh | Invoke-Expression
-          scoop bucket add games
-          scoop install gdsdecomp
-
-      - name: Locate game files
-        if: steps.source.outputs.use_existing != 'true'
-        id: game
-        shell: pwsh
-        run: |
-          $source = Join-Path "game-source" "${{ inputs.game_folder }}"
-
-          if (!(Test-Path $source)) {
-            throw "Game folder not found: $source"
-          }
-
-          $pck = Get-ChildItem $source -Filter "*.pck" -Recurse |
-            Select-Object -First 1
-
-          $exe = Get-ChildItem $source -Filter "*.exe" -Recurse |
-            Select-Object -First 1
-
-          if ($pck) {
-            "INPUT_FILE=$($pck.FullName)" >> $env:GITHUB_OUTPUT
-          }
-          elseif ($exe) {
-            "INPUT_FILE=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-          }
-          else {
-            throw "No EXE or PCK found."
-          }
-
-          if ($exe) {
-            "EXE_FILE=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Install gore
-        if: steps.source.outputs.use_existing != 'true'
-        shell: pwsh
-        run: |
-          $release = Invoke-RestMethod "https://api.github.com/repos/figurophobia/gore/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -eq "windows-x86_64.zip" } | Select-Object -First 1
-
-          if (!$asset) {
-            throw "Could not find the Windows x86_64 gore release asset."
-          }
-
-          $installDir = Join-Path $env:RUNNER_TEMP "gore"
-          New-Item -ItemType Directory -Force $installDir | Out-Null
-
-          $archive = Join-Path $env:RUNNER_TEMP "gore.zip"
-          Invoke-WebRequest $asset.browser_download_url -OutFile $archive
-          Expand-Archive -Path $archive -DestinationPath $installDir -Force
-
-          $gore = Get-ChildItem $installDir -Filter "gore.exe" -Recurse |
-            Select-Object -First 1
-
-          if (!$gore) {
-            throw "gore.exe was not found in the downloaded release."
-          }
-
-          "GORE_EXE=$($gore.FullName)" >> $env:GITHUB_ENV
-          Write-Host "Installed gore $($release.tag_name)"
-
-      - name: Recover and decrypt Godot project with gore
-        if: steps.source.outputs.use_existing != 'true'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force recovered | Out-Null
-
-          $gdre = Join-Path $env:USERPROFILE "scoop\shims\gdre_tools.exe"
-          if (!(Test-Path $gdre)) {
-            throw "GDRE Tools executable not found at $gdre"
-          }
-
-          if (!(Test-Path $env:GORE_EXE)) {
-            throw "gore executable not found at $env:GORE_EXE"
-          }
-
-          # gore searches the selected EXE/PCK for the embedded encryption key.
-          # The key itself is not passed as an argument or written to the logs.
-          & $env:GORE_EXE recover "${{ steps.game.outputs.INPUT_FILE }}" -o "$env:GITHUB_WORKSPACE\recovered" --gdre "$gdre"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "gore recovery failed with exit code $LASTEXITCODE."
-          }
-
-          if (!(Test-Path "recovered/project.godot")) {
-            throw "gore did not produce recovered/project.godot."
-          }
-
-      - name: Extract original EXE icon
-        if: steps.game.outputs.EXE_FILE != ''
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.Drawing
-
-          $exePath = "${{ steps.game.outputs.EXE_FILE }}"
-          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
-
-          if ($null -eq $icon) {
-            throw "Could not extract the EXE icon."
-          }
-
-          $sourceBitmap = $icon.ToBitmap()
-
-          $bitmap = New-Object System.Drawing.Bitmap(
-            1024, 1024,
-            [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
-          )
-
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.Clear([System.Drawing.Color]::Transparent)
-          $graphics.InterpolationMode = "HighQualityBicubic"
-          $graphics.SmoothingMode = "HighQuality"
-          $graphics.PixelOffsetMode = "HighQuality"
-
-          $size = [Math]::Min($sourceBitmap.Width, $sourceBitmap.Height)
-          $x = [int](($sourceBitmap.Width - $size) / 2)
-          $y = [int](($sourceBitmap.Height - $size) / 2)
-
-          $graphics.DrawImage(
-            $sourceBitmap,
-            [System.Drawing.Rectangle]::new(96, 96, 832, 832),
-            [System.Drawing.Rectangle]::new($x, $y, $size, $size),
-            [System.Drawing.GraphicsUnit]::Pixel
-          )
-
-          $bitmap.Save(
-            "$env:GITHUB_WORKSPACE\recovered\icon.png",
-            [System.Drawing.Imaging.ImageFormat]::Png
-          )
-
-          $graphics.Dispose()
-          $bitmap.Dispose()
-          $sourceBitmap.Dispose()
-          $icon.Dispose()
-
-          Write-Host "EXE icon extracted to recovered/icon.png"
-
-      - name: Set recovered project icon
-        if: steps.game.outputs.EXE_FILE != ''
-        shell: pwsh
-        run: |
-          $project = "recovered/project.godot"
-          $lines = [System.Collections.Generic.List[string]]::new()
-
-          (Get-Content $project) | ForEach-Object {
-            $lines.Add($_)
-          }
-
-          $start = $lines.IndexOf("[application]")
-
-          if ($start -lt 0) {
-            $lines.Add("")
-            $lines.Add("[application]")
-            $start = $lines.Count - 1
-          }
-
-          $end = $lines.Count
-
-          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match '^\[') {
-              $end = $i
-              break
-            }
-          }
-
-          $found = $false
-
-          for ($i = $start + 1; $i -lt $end; $i++) {
-            if ($lines[$i] -match '^config/icon=') {
-              $lines[$i] = 'config/icon="res://icon.png"'
-              $found = $true
-              break
-            }
-          }
-
-          if (!$found) {
-            $lines.Insert($start + 1, 'config/icon="res://icon.png"')
-          }
-
-          Set-Content $project $lines -Encoding utf8
+          Write-Host "Staged the existing decompiled Godot project at $decompiledPath. No recovery or decryption is performed."
 
       - name: Prepare uploaded iOS app icon
         shell: pwsh
@@ -377,7 +187,7 @@ jobs:
 
   build-ios:
     name: Build Unsigned iOS IPA
-    needs: recover
+    needs: prepare
     runs-on: xcode-27
 
     steps:
@@ -392,7 +202,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          MINOR="${{ needs.recover.outputs.godot_minor }}"
+          MINOR="${{ needs.prepare.outputs.godot_minor }}"
 
           RELEASES=$(curl -fsSL \
             "https://api.github.com/repos/godotengine/godot/releases?per_page=100")

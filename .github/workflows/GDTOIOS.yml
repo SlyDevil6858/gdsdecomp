@@ -13,6 +13,11 @@ on:
         required: true
         default: "DEWDROP"
         type: string
+      build_number:
+        description: "iOS build number shown in-game and stored in the IPA"
+        required: true
+        default: 1
+        type: number
 
 permissions:
   contents: read
@@ -486,13 +491,20 @@ jobs:
           path.write_text(text, encoding="utf-8")
           PY
 
-      - name: Set iOS app version from the game version
+      - name: Set iOS app version and build number
         shell: bash
+        env:
+          IOS_BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -euo pipefail
 
           python3 - <<'PY'
+          import os
           from pathlib import Path
+
+          build_number = os.environ["IOS_BUILD_NUMBER"].strip()
+          if not build_number.isdigit() or int(build_number) < 1:
+              raise SystemExit("Build number must be a positive whole number.")
 
           global_lines = Path("recovered/UI/Singletons/Global.gd").read_text(encoding="utf-8").splitlines()
           values = {}
@@ -504,12 +516,31 @@ jobs:
           if set(values) != {"major", "minor"}:
               raise SystemExit("Could not read version and minor_version from Global.gd.")
           game_version = values["major"] + "." + values["minor"]
-          parts = game_version.split(".")
-          if not all(part.isdigit() for part in parts) or len(parts) < 2:
-              raise SystemExit("Invalid iOS version string: " + game_version)
+          if not all(part.isdigit() for part in game_version.split(".")):
+              raise SystemExit("Invalid game version: " + game_version)
 
-          path = Path("recovered/export_presets.cfg")
-          preset_lines = path.read_text(encoding="utf-8").splitlines()
+          # Expose the selected build number to the iOS title-screen label.
+          project_path = Path("recovered/project.godot")
+          project_lines = project_path.read_text(encoding="utf-8").splitlines()
+          app_start = project_lines.index("[application]") if "[application]" in project_lines else -1
+          if app_start < 0:
+              raise SystemExit("project.godot has no [application] section.")
+          app_end = next((i for i in range(app_start + 1, len(project_lines)) if project_lines[i].startswith("[")), len(project_lines))
+          setting = 'config/ios_build_number=' + build_number
+          found = False
+          for i in range(app_start + 1, app_end):
+              if project_lines[i].startswith("config/ios_build_number="):
+                  project_lines[i] = setting
+                  found = True
+                  break
+          if not found:
+              project_lines.insert(app_end, setting)
+          project_path.write_text("\\n".join(project_lines) + "\\n", encoding="utf-8")
+
+          # Set the marketing version to the game version and the iOS build
+          # version to the user-selected build number.
+          preset_path = Path("recovered/export_presets.cfg")
+          preset_lines = preset_path.read_text(encoding="utf-8").splitlines()
           ios_index = None
           for i, line in enumerate(preset_lines):
               if line.startswith("[preset.") and line.endswith("]") and not line.endswith(".options]"):
@@ -519,26 +550,25 @@ jobs:
                       break
           if ios_index is None:
               raise SystemExit("Could not find the iOS export preset.")
-
           header = "[preset." + ios_index + ".options]"
-          try:
-              start = preset_lines.index(header) + 1
-          except ValueError:
+          if header not in preset_lines:
               raise SystemExit("The iOS export preset has no options section.")
+          start = preset_lines.index(header) + 1
           end = next((j for j in range(start, len(preset_lines)) if preset_lines[j].startswith("[")), len(preset_lines))
-          for key in ("application/short_version", "application/version"):
-              setting = key + '=\"' + game_version + '\"'
+          for key, value in (("application/short_version", game_version), ("application/version", build_number)):
+              setting = key + '=\"' + value + '\"'
               found = False
-              for j in range(start, end):
-                  if preset_lines[j].startswith(key + "="):
-                      preset_lines[j] = setting
+              for i in range(start, end):
+                  if preset_lines[i].startswith(key + "="):
+                      preset_lines[i] = setting
                       found = True
                       break
               if not found:
                   preset_lines.insert(end, setting)
                   end += 1
-          path.write_text("\n".join(preset_lines) + "\n", encoding="utf-8")
-          print("iOS app version set to " + game_version)
+          preset_path.write_text("\\n".join(preset_lines) + "\\n", encoding="utf-8")
+          print("iOS marketing version: " + game_version)
+          print("iOS build number: " + build_number)
           PY
 
       - name: Prepare GodotSteam compatibility for iOS

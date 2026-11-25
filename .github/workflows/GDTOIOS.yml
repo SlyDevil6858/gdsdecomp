@@ -560,26 +560,14 @@ jobs:
           mkdir -p "$PROJECT_DIR/.godot"
           echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
 
-          # First editor launch registers the built-in importers and scans
-          # the project. On a clean cache Godot 4.2.2 can encounter scenes
-          # before their referenced textures/audio have been imported.
-          # Let that bootstrap pass finish, then launch a fresh editor process
-          # so its filesystem scan resolves the newly generated metadata.
+          # Use Godot's dedicated import mode. Unlike a timed editor session,
+          # --import waits for the filesystem import queue to finish before
+          # exiting, and is the supported headless CI import entry point.
           "$GODOT_BIN" \
             --headless \
-            --editor \
-            --verbose \
             --path "$PROJECT_DIR" \
-            --quit-after 18000
-
-          # Second pass is the actual import validation pass. It runs with
-          # the importer metadata/cache produced by the bootstrap scan.
-          "$GODOT_BIN" \
-            --headless \
-            --editor \
-            --verbose \
-            --path "$PROJECT_DIR" \
-            --quit-after 18000
+            --import \
+            --verbose
 
           # Godot can emit importer errors without a useful non-zero exit.
           # Verify that a known referenced texture was actually imported

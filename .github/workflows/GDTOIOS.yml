@@ -722,7 +722,7 @@ jobs:
                   break
               time.sleep(5)
 
-          missing = [path for path in expected if not (project / path).is_file()]
+          missing = [path for path in expected if not output_exists(path)]
           print("Godot import wait timed out or editor exited.")
           print("Expected outputs:", len(expected), "Missing outputs:", len(missing))
           for path in missing[:30]:

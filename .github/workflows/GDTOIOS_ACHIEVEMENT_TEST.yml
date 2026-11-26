@@ -1287,7 +1287,7 @@ jobs:
           mkdir -p ipa/Payload
           cp -R "$APP" ipa/Payload/
 
-          IPA_NAME="DEWDROP_DYNASTY_A15_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
+          IPA_NAME="DEWDROP_DYNASTY_A15_TEST_BUILD_v${GAME_VERSION}_Build_${IOS_BUILD_NUMBER}.ipa"
           cd ipa
           zip -qr "$GITHUB_WORKSPACE/$IPA_NAME" Payload
 
@@ -1299,7 +1299,7 @@ jobs:
           repository: SlyDevil6858/myprivaterepo
           token: ${{ secrets.GAME_REPO_TOKEN }}
           tag_name: "dewdrop-ios-build-${{ github.run_id }}"
-          name: "DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}"
+          name: "DEWDROP DYNASTY A15 TEST BUILD v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}"
           body: |
             Unsigned iOS build of Dewdrop Dynasty.
 
@@ -1307,6 +1307,6 @@ jobs:
             Support page: ${{ inputs.support_url }}
 
             This release is published privately in the Dewdrop Dynasty game repository.
-          files: "DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa"
+          files: "DEWDROP_DYNASTY_A15_TEST_BUILD_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa"
           fail_on_unmatched_files: true
           make_latest: false

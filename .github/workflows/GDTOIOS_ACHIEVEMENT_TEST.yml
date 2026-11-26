@@ -102,7 +102,9 @@ jobs:
             "JOY_BUTTON_LEFT_STICK",
             "JOY_BUTTON_RIGHT_STICK",
             "JOY_BUTTON_BACK",
-            "_controller_menu_hold_started",
+            "_controller_menu_hold_started",,
+            "_theme_palette_value",
+            'const DEFAULT_THEME_NAME := "CLASSIC"'
           )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
           foreach ($feature in $requiredEditorFeatures) {

@@ -611,8 +611,7 @@ jobs:
             --editor \
             --import \
             --verbose \
-            --path "$ASSET_PROJECT_DIR" \
-            --quit 2>&1 | tee "$IMPORT_LOG"
+            --path "$ASSET_PROJECT_DIR" 2>&1 | tee "$IMPORT_LOG"
           GODOT_STATUS=${PIPESTATUS[0]}
           set -e
 

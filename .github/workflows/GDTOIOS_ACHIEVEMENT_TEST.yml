@@ -1113,7 +1113,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           repository: SlyDevil6858/myprivaterepo
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ secrets.GAME_REPO_TOKEN }}
           tag_name: "dewdrop-ios-build-${{ github.run_id }}"
           name: "DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}"
           body: |

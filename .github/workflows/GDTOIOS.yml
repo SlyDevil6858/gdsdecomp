@@ -824,10 +824,12 @@ jobs:
           if not any(line.startswith("TouchControls=") for line in lines):
               raise SystemExit("Production project is missing the nxnative-style TouchControls autoload.")
           project.write_text(text, encoding="utf-8")
-          Path("recovered/UI/Achievements/AchievementTestOverlay.gd").unlink(missing_ok=True)
+          test_overlay = Path("recovered/UI/Achievements/AchievementTestOverlay.gd")
+          test_overlay.unlink(missing_ok=True)
+          Path(str(test_overlay) + ".uid").unlink(missing_ok=True)
           PY
 
-          if grep -R -n -E 'AchievementTestOverlay|FACE_ACTIONS|_queue_next_achievement' recovered/UI/Achievements; then
+          if grep -R -n --include='*.gd' --include='project.godot' -E 'AchievementTestOverlay|FACE_ACTIONS|_queue_next_achievement' recovered; then
             echo "Test-only achievement triggers found in production game files."
             exit 1
           fi

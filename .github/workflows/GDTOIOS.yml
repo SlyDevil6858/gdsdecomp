@@ -323,13 +323,18 @@ jobs:
               os.environ["IOS_BUNDLE_ID"]
           )
 
-          team_id = os.environ.get("APPLE_TEAM_ID", "")
-          if team_id:
-              text = replace_setting(
-                  text,
-                  "application/app_store_team_id",
-                  team_id
-              )
+          # Godot 4.2.2 requires a non-empty 10-character Team ID
+          # even when exporting an unsigned Xcode project. When no real
+          # Apple team is configured, use a placeholder for project generation.
+          # This does not sign the app or make it eligible for App Store upload.
+          team_id = os.environ.get("APPLE_TEAM_ID", "").strip() or "A1B2C3D4E5"
+          if not re.fullmatch(r"[A-Z0-9]{10}", team_id):
+              raise SystemExit("APPLE_TEAM_ID must be a 10-character uppercase alphanumeric Team ID.")
+          text = replace_setting(
+              text,
+              "application/app_store_team_id",
+              team_id
+          )
 
           # Use the project icon generated from DEWDROP/IOS_ICON.png.
           text = re.sub(

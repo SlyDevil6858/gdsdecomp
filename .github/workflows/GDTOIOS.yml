@@ -659,7 +659,7 @@ jobs:
 
           for sidecar in project.rglob("*.import"):
               content = sidecar.read_text(encoding="utf-8", errors="replace")
-              match = re.search(r"(?ms)^dest_files\\s*=\\s*\\[(.*?)\\]", content)
+              match = re.search(r"(?ms)^dest_files\s*=\s*\[(.*?)\]", content)
               if match:
                   expected.update(re.findall(r'"res://([^"]+)"', match.group(1)))
 

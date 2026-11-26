@@ -824,7 +824,10 @@ jobs:
                   Steam.achievement_unlocked.connect(_on_achievement_unlocked)
 
           func _on_achievement_unlocked(achievement_name: String) -> void:
-              notification.show_named_achievement(achievement_name)
+              if notification.has_method("show_named_achievement"):
+                  notification.show_named_achievement(achievement_name)
+              else:
+                  notification.show_achievement(achievement_name, "Achievement unlocked", null)
           GDSCRIPT
 
           python3 - <<'PY'

@@ -780,6 +780,32 @@ jobs:
 
           mkdir -p ios-export
 
+          echo "=== iOS export environment diagnostics ==="
+          echo "Xcode selection:"
+          xcode-select -p || true
+          echo "Xcode version:"
+          xcodebuild -version || true
+          echo "iPhoneOS SDK:"
+          xcrun --sdk iphoneos --show-sdk-path || true
+          echo "Godot export template files:"
+          TEMPLATE_DIR="$HOME/Library/Application Support/Godot/export_templates/4.2.2.stable"
+          find "$TEMPLATE_DIR" -maxdepth 2 -type f -print | sort || true
+          echo "iOS preset options (identity values redacted):"
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("recovered/export_presets.cfg").read_text(encoding="utf-8")
+          for line in text.splitlines():
+              if line.startswith("[preset.") or line.startswith("name=") or line.startswith("platform="):
+                  print(line)
+              elif line.startswith(("application/", "architectures/", "icons/", "storyboard/")):
+                  if any(key in line for key in ("bundle_identifier", "app_store_team_id")):
+                      print(line.split("=", 1)[0] + '="<redacted>"')
+                  else:
+                      print(line)
+          PY
+          echo "=== End iOS export environment diagnostics ==="
+
           set +e
           "$GODOT_BIN" \
             --headless \

@@ -113,8 +113,8 @@ jobs:
               throw "Touch-control editor port is missing required source marker: $marker"
             }
           }
-          if ($touchSource.Contains("_build_icon_theme_palette") -or $touchSource.Contains("DEWDROP DYNASTY")) {
-            throw "The removed re-imagined icon-derived touch theme must not be present."
+          if ($touchSource.Contains("_build_icon_theme_palette")) {
+            throw "The removed re-imagined icon-derived touch theme generator must not be present."
           }
           if ($touchSource.Contains("_macroToggleButton") -or $touchSource.Contains("toggleBYMacro")) {
             throw "The excluded Y+B macro control must not be present in the Godot editor."

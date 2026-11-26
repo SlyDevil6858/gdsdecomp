@@ -800,63 +800,115 @@ jobs:
           echo "Godot asset-only import cache verified. Imported files: $(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f | wc -l | tr -d ' ')"
           echo "Generated import sidecars: $(find "$PROJECT_DIR" -type f -name '*.import' | wc -l | tr -d ' ')"
 
-      - name: Add in-game achievement test button (test build only)
+      - name: Add in-game achievement gallery (test build only)
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p recovered/UI/Achievements
           cat > recovered/UI/Achievements/AchievementTestOverlay.gd <<'GDSCRIPT'
           extends CanvasLayer
 
           const NOTIFICATION_SCENE: PackedScene = preload("res://UI/Achievements/AchievementNotificationPreview.tscn")
+          const ACHIEVEMENT_NAMES := [
+              "Become Handsome",
+              "Cold Feet",
+              "Home Sweet Home",
+              "Homesick",
+              "Resisting Temptation",
+              "The End"
+          ]
 
           var notification: Control
+          var gallery: PanelContainer
 
           func _ready() -> void:
+              layer = 100
               notification = NOTIFICATION_SCENE.instantiate()
               notification.preview_mode = false
               add_child(notification)
 
-              var test_button := Button.new()
-              test_button.text = "TEST ACHIEVEMENT"
-              test_button.position = Vector2(151, 4)
-              test_button.size = Vector2(85, 17)
-              test_button.add_theme_font_size_override("font_size", 7)
-              test_button.focus_mode = Control.FOCUS_NONE
-              test_button.pressed.connect(_show_test_achievement)
-              add_child(test_button)
+              var toggle := Button.new()
+              toggle.text = "ACHIEVEMENTS"
+              toggle.anchor_left = 0.5
+              toggle.anchor_right = 0.5
+              toggle.anchor_top = 1.0
+              toggle.anchor_bottom = 1.0
+              toggle.offset_left = -48
+              toggle.offset_right = 48
+              toggle.offset_top = -34
+              toggle.offset_bottom = -10
+              toggle.focus_mode = Control.FOCUS_NONE
+              toggle.pressed.connect(_toggle_gallery)
+              add_child(toggle)
 
-          func _show_test_achievement() -> void:
-              notification.show_named_achievement("Cold Feet")
+              gallery = PanelContainer.new()
+              gallery.anchor_left = 0.5
+              gallery.anchor_right = 0.5
+              gallery.anchor_top = 1.0
+              gallery.anchor_bottom = 1.0
+              gallery.offset_left = -105
+              gallery.offset_right = 105
+              gallery.offset_top = -210
+              gallery.offset_bottom = -40
+              gallery.visible = false
+              add_child(gallery)
+
+              var list := VBoxContainer.new()
+              list.add_theme_constant_override("separation", 3)
+              gallery.add_child(list)
+
+              var heading := Label.new()
+              heading.text = "PREVIEW ACHIEVEMENT POPUPS"
+              heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+              list.add_child(heading)
+
+              for achievement_name in ACHIEVEMENT_NAMES:
+                  var button := Button.new()
+                  button.text = achievement_name
+                  button.custom_minimum_size = Vector2(190, 22)
+                  button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+                  button.focus_mode = Control.FOCUS_NONE
+                  button.pressed.connect(_show_test_achievement.bind(achievement_name))
+                  list.add_child(button)
+
+              var close_button := Button.new()
+              close_button.text = "CLOSE"
+              close_button.pressed.connect(func(): gallery.hide())
+              list.add_child(close_button)
+
+          func _toggle_gallery() -> void:
+              gallery.visible = not gallery.visible
+
+          func _show_test_achievement(achievement_name: String) -> void:
+              notification.show_named_achievement(achievement_name)
+              gallery.hide()
           GDSCRIPT
 
           python3 - <<'PY'
           from pathlib import Path
           project = Path("recovered/project.godot")
           text = project.read_text(encoding="utf-8-sig")
-          autoload = '[autoload]'
-          if autoload not in text:
-              text += '\n[autoload]\n'
           lines = text.splitlines()
-          start = lines.index(autoload)
+          section = "[autoload]"
+          if section not in lines:
+              lines.extend(["", section])
+          start = lines.index(section)
           end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
           entry = 'AchievementTest="*res://UI/Achievements/AchievementTestOverlay.gd"'
-          if not any(line.startswith("AchievementTest=") for line in lines[start + 1:end]):
+          existing = next((i for i in range(start + 1, end) if lines[i].startswith("AchievementTest=")), None)
+          if existing is None:
               lines.insert(end, entry)
           else:
-              for i in range(start + 1, end):
-                  if lines[i].startswith("AchievementTest="):
-                      lines[i] = entry
-                      break
+              lines[existing] = entry
           project.write_text("\n".join(lines) + "\n", encoding="utf-8")
-          print("Enabled the touch-friendly achievement test overlay for this workflow only.")
+          print("Added test-only achievement gallery autoload.")
           PY
 
           test -f recovered/UI/Achievements/AchievementNotificationPreview.tscn
+          test -f recovered/UI/TouchControls/TouchControls.gd
           grep -q '^AchievementTest=' recovered/project.godot
-          echo "Test build overlay staged. The normal iOS workflow remains unchanged."
-
+          grep -q 'AchievementNotificationPreview.tscn' recovered/UI/Achievements/AchievementTestOverlay.gd
+          echo "All six achievement popup previews are available in the test build."
       - name: Export iOS Xcode project
         shell: bash
         env:

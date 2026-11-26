@@ -804,7 +804,7 @@ jobs:
 
           ios_index = None
           for i, header in enumerate(lines):
-              match = re.fullmatch(r"\\[preset\\.(\\d+)\\]", header)
+              match = re.fullmatch(r"\[preset\.(\d+)\]", header)
               if not match:
                   continue
               end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("[")), len(lines))
@@ -848,7 +848,7 @@ jobs:
           # did not survive serialization.
           written = path.read_text(encoding="utf-8")
           section_match = re.search(
-              rf"(?ms)^\\[preset\\.{ios_index}\\.options\\]\\n(.*?)(?=^\\[|\\Z)",
+              rf"(?ms)^\[preset\.{ios_index}\.options\]\n(.*?)(?=^\[|\Z)",
               written
           )
           if not section_match:

@@ -518,6 +518,7 @@ jobs:
               "extends Node\n\n"
               "# Local iOS achievement storage; this does not connect to Steam.\n"
               "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "signal achievement_unlocked(achievement_name: String)\n"
               "var achievements: Dictionary = {}\n\n"
               "func _ready() -> void:\n"
               "    var config := ConfigFile.new()\n"
@@ -532,7 +533,8 @@ jobs:
               "func getAchievement(achievement_name: String) -> Dictionary:\n"
               "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
               "func setAchievement(achievement_name: String) -> void:\n"
-              "    achievements[achievement_name] = true\n\n"
+              "    achievements[achievement_name] = true\n"
+              "    achievement_unlocked.emit(achievement_name)\n\n"
               "func storeStats() -> void:\n"
               "    var config := ConfigFile.new()\n"
               "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
@@ -839,6 +841,15 @@ jobs:
               notification.preview_mode = false
               add_child(notification)
               notification.get_node("Timer").timeout.connect(_on_notification_timeout)
+              if Steam.has_signal("achievement_unlocked"):
+                  Steam.achievement_unlocked.connect(_on_game_achievement_unlocked)
+
+          func _on_game_achievement_unlocked(achievement_name: String) -> void:
+              _queue_named_achievement(achievement_name)
+
+          func _queue_named_achievement(achievement_name: String) -> void:
+              notification_queue.append(achievement_name)
+              _play_next_achievement()
 
           func _input(event: InputEvent) -> void:
               if not event is InputEventAction:

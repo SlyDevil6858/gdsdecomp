@@ -930,21 +930,25 @@ jobs:
             exit "$EXPORT_STATUS"
           fi
 
-          if [ ! -f ios-export/Game.zip ]; then
-            echo "Godot did not create the iOS export ZIP."
+          # With export_project_only=true, Godot 4.2 writes the Xcode project
+          # tree directly instead of producing an IPA/archive ZIP.
+          echo "Godot iOS export output:"
+          find ios-export -maxdepth 4 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.plist" \) -print | sort
+
+          XCODEPROJ=$(find ios-export -name "*.xcodeproj" -type d | head -n 1)
+          if [ -z "$XCODEPROJ" ]; then
+            echo "Godot reported export completion but no Xcode project was generated."
+            find ios-export -maxdepth 4 -print | head -n 200
             exit 1
           fi
-
-          mkdir -p ios-export/project
-          unzip -q ios-export/Game.zip -d ios-export/project
+          echo "Generated Xcode project: $XCODEPROJ"
 
       - name: Compile without code signing
         shell: bash
         run: |
           set -euo pipefail
 
-          XCODEPROJ=$(find ios-export/project \
-            -name "*.xcodeproj" -type d | head -n 1)
+          XCODEPROJ=$(find ios-export -name "*.xcodeproj" -type d | head -n 1)
 
           if [ -z "$XCODEPROJ" ]; then
             echo "Xcode project not found."

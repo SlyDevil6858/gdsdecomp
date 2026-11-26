@@ -818,75 +818,50 @@ jobs:
               "Resisting Temptation",
               "The End"
           ]
+          const FACE_ACTIONS: Array[StringName] = [
+              &"joycon_jump",
+              &"joycon_roll",
+              &"joycon_weapon",
+              &"joycon_toggle"
+          ]
 
           var notification: Control
-          var gallery: PanelContainer
+          var next_achievement_index := 0
+          var notification_queue: Array[String] = []
+          var notification_playing := false
 
           func _ready() -> void:
               layer = 100
-              # Add the game's existing iOS virtual controls to this test build.
-              var touch_controls := TOUCH_CONTROLS_SCENE.instantiate()
-              add_child(touch_controls)
+              # Keep the game's existing iOS virtual controls in this test build.
+              add_child(TOUCH_CONTROLS_SCENE.instantiate())
 
               notification = NOTIFICATION_SCENE.instantiate()
               notification.preview_mode = false
               add_child(notification)
+              notification.get_node("Timer").timeout.connect(_on_notification_timeout)
 
-              var toggle := Button.new()
-              toggle.text = "ACHIEVEMENTS"
-              toggle.anchor_left = 0.5
-              toggle.anchor_right = 0.5
-              toggle.anchor_top = 1.0
-              toggle.anchor_bottom = 1.0
-              toggle.offset_left = -48
-              toggle.offset_right = 48
-              toggle.offset_top = -34
-              toggle.offset_bottom = -10
-              toggle.focus_mode = Control.FOCUS_NONE
-              toggle.pressed.connect(_toggle_gallery)
-              add_child(toggle)
+          func _input(event: InputEvent) -> void:
+              if not event is InputEventAction:
+                  return
+              var action_event := event as InputEventAction
+              if action_event.pressed and action_event.action in FACE_ACTIONS:
+                  _queue_next_achievement()
 
-              gallery = PanelContainer.new()
-              gallery.anchor_left = 0.5
-              gallery.anchor_right = 0.5
-              gallery.anchor_top = 1.0
-              gallery.anchor_bottom = 1.0
-              gallery.offset_left = -105
-              gallery.offset_right = 105
-              gallery.offset_top = -210
-              gallery.offset_bottom = -40
-              gallery.visible = false
-              add_child(gallery)
+          func _queue_next_achievement() -> void:
+              notification_queue.append(ACHIEVEMENT_NAMES[next_achievement_index])
+              next_achievement_index = (next_achievement_index + 1) % ACHIEVEMENT_NAMES.size()
+              _play_next_achievement()
 
-              var list := VBoxContainer.new()
-              list.add_theme_constant_override("separation", 3)
-              gallery.add_child(list)
-
-              var heading := Label.new()
-              heading.text = "PREVIEW ACHIEVEMENT POPUPS"
-              heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-              list.add_child(heading)
-
-              for achievement_name in ACHIEVEMENT_NAMES:
-                  var button := Button.new()
-                  button.text = achievement_name
-                  button.custom_minimum_size = Vector2(190, 22)
-                  button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-                  button.focus_mode = Control.FOCUS_NONE
-                  button.pressed.connect(_show_test_achievement.bind(achievement_name))
-                  list.add_child(button)
-
-              var close_button := Button.new()
-              close_button.text = "CLOSE"
-              close_button.pressed.connect(func(): gallery.hide())
-              list.add_child(close_button)
-
-          func _toggle_gallery() -> void:
-              gallery.visible = not gallery.visible
-
-          func _show_test_achievement(achievement_name: String) -> void:
+          func _play_next_achievement() -> void:
+              if notification_playing or notification_queue.is_empty():
+                  return
+              notification_playing = true
+              var achievement_name: String = notification_queue.pop_front()
               notification.show_named_achievement(achievement_name)
-              gallery.hide()
+
+          func _on_notification_timeout() -> void:
+              notification_playing = false
+              _play_next_achievement()
           GDSCRIPT
 
           python3 - <<'PY'
@@ -913,9 +888,11 @@ jobs:
           test -f recovered/UI/TouchControls/TouchControls.gd
           test -f recovered/UI/TouchControls/TouchControls.tscn
           grep -q 'TOUCH_CONTROLS_SCENE' recovered/UI/Achievements/AchievementTestOverlay.gd
+          grep -q 'FACE_ACTIONS' recovered/UI/Achievements/AchievementTestOverlay.gd
+          grep -q '_queue_next_achievement' recovered/UI/Achievements/AchievementTestOverlay.gd
           grep -q '^AchievementTest=' recovered/project.godot
           grep -q 'AchievementNotificationPreview.tscn' recovered/UI/Achievements/AchievementTestOverlay.gd
-          echo "All six achievement popup previews are available in the test build."
+          echo "All six achievement popups queue from any face button; no on-screen test button is added."
       - name: Export iOS Xcode project
         shell: bash
         env:

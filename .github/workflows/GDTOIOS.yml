@@ -518,6 +518,7 @@ jobs:
               "extends Node\n\n"
               "# Local iOS achievement storage; this does not connect to Steam.\n"
               "const SAVE_PATH := \"user://ios_achievements.cfg\"\n"
+              "signal achievement_unlocked(achievement_name: String)\n"
               "var achievements: Dictionary = {}\n\n"
               "func _ready() -> void:\n"
               "    var config := ConfigFile.new()\n"
@@ -532,7 +533,8 @@ jobs:
               "func getAchievement(achievement_name: String) -> Dictionary:\n"
               "    return {\"achieved\": bool(achievements.get(achievement_name, false))}\n\n"
               "func setAchievement(achievement_name: String) -> void:\n"
-              "    achievements[achievement_name] = true\n\n"
+              "    achievements[achievement_name] = true\n"
+              "    achievement_unlocked.emit(achievement_name)\n\n"
               "func storeStats() -> void:\n"
               "    var config := ConfigFile.new()\n"
               "    config.set_value(\"achievements\", \"unlocked\", achievements)\n"
@@ -800,18 +802,54 @@ jobs:
           echo "Godot asset-only import cache verified. Imported files: $(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f | wc -l | tr -d ' ')"
           echo "Generated import sidecars: $(find "$PROJECT_DIR" -type f -name '*.import' | wc -l | tr -d ' ')"
 
-      - name: Exclude achievement notification preview from iOS export
+      - name: Add iOS achievement popup to game build
         shell: bash
         run: |
           set -euo pipefail
 
-          PREVIEW_SCENE="recovered/UI/Achievements/AchievementNotificationPreview.tscn"
-          if [ -f "$PREVIEW_SCENE" ]; then
-            rm "$PREVIEW_SCENE"
-            echo "Excluded standalone achievement notification preview scene from this iOS build."
-          else
-            echo "Achievement notification preview scene is not present; nothing to exclude."
-          fi
+          test -f recovered/UI/Achievements/AchievementNotificationPreview.tscn
+          cat > recovered/UI/Achievements/IOSAchievementPopup.gd <<'GDSCRIPT'
+          extends CanvasLayer
+
+          const NOTIFICATION_SCENE: PackedScene = preload("res://UI/Achievements/AchievementNotificationPreview.tscn")
+
+          var notification: Control
+
+          func _ready() -> void:
+              layer = 100
+              notification = NOTIFICATION_SCENE.instantiate()
+              notification.preview_mode = false
+              add_child(notification)
+              if Steam.has_signal("achievement_unlocked"):
+                  Steam.achievement_unlocked.connect(_on_achievement_unlocked)
+
+          func _on_achievement_unlocked(achievement_name: String) -> void:
+              notification.show_named_achievement(achievement_name)
+          GDSCRIPT
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("recovered/project.godot")
+          text = path.read_text(encoding="utf-8-sig")
+          match = re.search(r"(?ms)^\\[autoload\\]\\s*\\n(.*?)(?=^\\[|\\Z)", text)
+          if not match:
+              raise SystemExit("project.godot has no [autoload] section.")
+          section = match.group(1)
+          entry = 'IOSAchievementPopup="*res://UI/Achievements/IOSAchievementPopup.gd"'
+          if re.search(r"(?m)^IOSAchievementPopup\\s*=", section):
+              section = re.sub(r"(?m)^IOSAchievementPopup\\s*=.*$", entry, section)
+          else:
+              section = section.rstrip() + "\\n" + entry + "\\n"
+          text = text[:match.start(1)] + section + text[match.end(1):]
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          grep -q '^IOSAchievementPopup=' recovered/project.godot
+          grep -q 'achievement_unlocked.emit(achievement_name)' recovered/ios_steam_stub.gd
+          grep -q 'AchievementNotificationPreview.tscn' recovered/UI/Achievements/IOSAchievementPopup.gd
+          echo "Game build now displays the iOS achievement popup when the local achievement stub unlocks an achievement."
 
       - name: Export iOS Xcode project
         shell: bash

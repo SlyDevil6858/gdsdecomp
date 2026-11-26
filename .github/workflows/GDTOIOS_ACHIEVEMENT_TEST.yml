@@ -811,7 +811,6 @@ jobs:
           extends CanvasLayer
 
           const NOTIFICATION_SCENE: PackedScene = preload("res://UI/Achievements/AchievementNotificationPreview.tscn")
-          const TOUCH_CONTROLS_SCENE: PackedScene = preload("res://UI/TouchControls/TouchControls.tscn")
           const ACHIEVEMENT_NAMES := [
               "Become Handsome",
               "Cold Feet",
@@ -834,8 +833,7 @@ jobs:
 
           func _ready() -> void:
               layer = 100
-              # Keep the game's existing iOS virtual controls in this test build.
-              add_child(TOUCH_CONTROLS_SCENE.instantiate())
+              # TouchControls is a project autoload; do not create a duplicate here.
 
               notification = NOTIFICATION_SCENE.instantiate()
               notification.preview_mode = false
@@ -901,7 +899,8 @@ jobs:
           test -f recovered/UI/Achievements/AchievementNotificationPreview.tscn
           test -f recovered/UI/TouchControls/TouchControls.gd
           test -f recovered/UI/TouchControls/TouchControls.tscn
-          grep -q 'TOUCH_CONTROLS_SCENE' recovered/UI/Achievements/AchievementTestOverlay.gd
+          grep -q '^TouchControls=' recovered/project.godot
+          ! grep -q 'TOUCH_CONTROLS_SCENE' recovered/UI/Achievements/AchievementTestOverlay.gd
           grep -q 'FACE_ACTIONS' recovered/UI/Achievements/AchievementTestOverlay.gd
           grep -q '_queue_next_achievement' recovered/UI/Achievements/AchievementTestOverlay.gd
           grep -q '^AchievementTest=' recovered/project.godot

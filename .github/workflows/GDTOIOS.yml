@@ -681,13 +681,25 @@ jobs:
               os.kill(godot_pid, signal.SIGTERM)
               raise SystemExit(1)
 
+          def output_exists(path):
+              exact = project / path
+              if exact.is_file():
+                  return True
+              # Rewriting stale source_file URIs can change Godot's 32-character
+              # import hash while retaining the asset filename and output type.
+              match = re.match(r"^(.*)-[0-9a-f]{32}(\\..+)$", Path(path).name)
+              if not match:
+                  return False
+              stem, suffix = match.groups()
+              return any(imported.glob(stem + "-*" + suffix))
+
           print("Waiting for Godot to generate", len(expected), "import outputs.")
           deadline = time.monotonic() + 900
           stable_since = None
           last_snapshot = None
 
           while time.monotonic() < deadline:
-              missing = [path for path in expected if not (project / path).is_file()]
+              missing = [path for path in expected if not output_exists(path)]
               if not missing:
                   files = list(imported.glob("*")) if imported.is_dir() else []
                   snapshot = (len(files), sum(p.stat().st_size for p in files if p.is_file()))

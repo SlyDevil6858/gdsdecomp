@@ -393,6 +393,31 @@ jobs:
                   project_lines[existing] = line
           project_path.write_text("\n".join(project_lines) + "\n", encoding="utf-8")
 
+          # Godot 4.2's Apple Embedded exporter rejects iOS export when
+          # ETC2/ASTC texture import is disabled. Keep this enabled in the
+          # actual project so the iOS preset passes project validation.
+          project_lines = project_path.read_text(encoding="utf-8").splitlines()
+          rendering_header = "[rendering]"
+          if rendering_header not in project_lines:
+              project_lines.extend(["", rendering_header])
+          rendering_start = project_lines.index(rendering_header) + 1
+          rendering_end = next(
+              (i for i in range(rendering_start, len(project_lines)) if project_lines[i].startswith("[")),
+              len(project_lines)
+          )
+          texture_setting = "textures/vram_compression/import_etc2_astc=true"
+          existing = next(
+              (i for i in range(rendering_start, rendering_end)
+               if project_lines[i].startswith("textures/vram_compression/import_etc2_astc=")),
+              None
+          )
+          if existing is None:
+              project_lines.insert(rendering_end, texture_setting)
+          else:
+              project_lines[existing] = texture_setting
+          project_path.write_text("\n".join(project_lines) + "\n", encoding="utf-8")
+          print("Enabled ETC2/ASTC texture import for the iOS export.")
+
           preset_path = Path("recovered/export_presets.cfg")
           preset_lines = preset_path.read_text(encoding="utf-8").splitlines()
           preset_index = None
@@ -559,6 +584,7 @@ jobs:
 
           [rendering]
           renderer/rendering_method="gl_compatibility"
+          textures/vram_compression/import_etc2_astc=true
           EOF
 
           python3 - "$PROJECT_DIR" "$ASSET_PROJECT_DIR" <<'PY'

@@ -623,7 +623,7 @@ jobs:
           settings_path = source / "project.godot"
           if settings_path.is_file():
               settings = settings_path.read_text(encoding="utf-8")
-              match = re.search(r"(?ms)^\\[importer_defaults\\]\\s*\\n.*?(?=^\\[|\\Z)", settings)
+              match = re.search(r"(?ms)^\[importer_defaults\]\s*\n.*?(?=^\[|\Z)", settings)
               if match:
                   with (target / "project.godot").open("a", encoding="utf-8") as project:
                       project.write("\\n" + match.group(0).rstrip() + "\\n")

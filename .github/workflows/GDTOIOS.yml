@@ -609,9 +609,10 @@ jobs:
           "$GODOT_BIN" \
             --headless \
             --editor \
+            --import \
             --verbose \
             --path "$ASSET_PROJECT_DIR" \
-            --quit-after 18000 2>&1 | tee "$IMPORT_LOG"
+            --quit 2>&1 | tee "$IMPORT_LOG"
           GODOT_STATUS=${PIPESTATUS[0]}
           set -e
 

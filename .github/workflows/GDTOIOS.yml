@@ -997,6 +997,189 @@ jobs:
           fi
           echo "Generated Xcode project: $XCODEPROJ"
 
+          # Godot 4.2.2 uses the legacy app-delegate window. Xcode 27 requires
+          # a declared scene configuration, so attach Godot's existing
+          # ViewController to a UIWindowScene and forward scene lifecycle events.
+          python3 - "$XCODEPROJ" <<'PY'
+          import plistlib
+          import re
+          import sys
+          from pathlib import Path
+
+          xcodeproj = Path(sys.argv[1])
+          app_dir = xcodeproj.parent / xcodeproj.stem
+          pbx_path = xcodeproj / "project.pbxproj"
+          pbx = pbx_path.read_text(encoding="utf-8")
+
+          build_id = "A11CE000000000000000001"
+          file_id = "A11CE000000000000000002"
+          source_name = "SceneDelegate.m"
+
+          source = r'''#import <UIKit/UIKit.h>
+
+          @protocol GodotApplicationLifecycleService <NSObject>
+          @optional
+          - (void)applicationDidBecomeActive:(UIApplication *)application;
+          - (void)applicationWillResignActive:(UIApplication *)application;
+          - (void)applicationDidEnterBackground:(UIApplication *)application;
+          - (void)applicationWillEnterForeground:(UIApplication *)application;
+          @end
+
+          @interface GodotApplicalitionDelegate : NSObject
+          + (NSArray<id<GodotApplicationLifecycleService>> *)services;
+          @end
+
+          @interface AppDelegate : NSObject
+          + (UIViewController *)viewController;
+          @end
+
+          @interface GameSceneDelegate : UIResponder <UIWindowSceneDelegate>
+          @property (strong, nonatomic) UIWindow *window;
+          @end
+
+          @implementation GameSceneDelegate
+
+          - (void)scene:(UIScene *)scene
+              willConnectToSession:(UISceneSession *)session
+                           options:(UISceneConnectionOptions *)connectionOptions {
+              (void)session;
+              (void)connectionOptions;
+
+              if (![scene isKindOfClass:[UIWindowScene class]]) {
+                  return;
+              }
+
+              UIViewController *gameViewController = [AppDelegate viewController];
+              if (gameViewController == nil) {
+                  NSLog(@"DEWDROP: Godot did not provide its main view controller.");
+                  return;
+              }
+
+              UIWindow *sceneWindow = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+              sceneWindow.rootViewController = gameViewController;
+              self.window = sceneWindow;
+              [sceneWindow makeKeyAndVisible];
+          }
+
+          - (void)sceneDidBecomeActive:(UIScene *)scene {
+              (void)scene;
+              UIApplication *application = [UIApplication sharedApplication];
+              for (id<GodotApplicationLifecycleService> service in [GodotApplicalitionDelegate services]) {
+                  if ([service respondsToSelector:@selector(applicationDidBecomeActive:)]) {
+                      [service applicationDidBecomeActive:application];
+                  }
+              }
+          }
+
+          - (void)sceneWillResignActive:(UIScene *)scene {
+              (void)scene;
+              UIApplication *application = [UIApplication sharedApplication];
+              for (id<GodotApplicationLifecycleService> service in [GodotApplicalitionDelegate services]) {
+                  if ([service respondsToSelector:@selector(applicationWillResignActive:)]) {
+                      [service applicationWillResignActive:application];
+                  }
+              }
+          }
+
+          - (void)sceneDidEnterBackground:(UIScene *)scene {
+              (void)scene;
+              UIApplication *application = [UIApplication sharedApplication];
+              for (id<GodotApplicationLifecycleService> service in [GodotApplicalitionDelegate services]) {
+                  if ([service respondsToSelector:@selector(applicationDidEnterBackground:)]) {
+                      [service applicationDidEnterBackground:application];
+                  }
+              }
+          }
+
+          - (void)sceneWillEnterForeground:(UIScene *)scene {
+              (void)scene;
+              UIApplication *application = [UIApplication sharedApplication];
+              for (id<GodotApplicationLifecycleService> service in [GodotApplicalitionDelegate services]) {
+                  if ([service respondsToSelector:@selector(applicationWillEnterForeground:)]) {
+                      [service applicationWillEnterForeground:application];
+                  }
+              }
+          }
+
+          @end
+          '''
+          app_dir.mkdir(parents=True, exist_ok=True)
+          (app_dir / source_name).write_text(source, encoding="utf-8")
+
+          build_entry = f'\t\t{build_id} /* {source_name} in Sources */ = {{isa = PBXBuildFile; fileRef = {file_id} /* {source_name} */; }};\n'
+          file_entry = f'\t\t{file_id} /* {source_name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = {source_name}; sourceTree = "<group>"; }};\n'
+
+          def insert_in_section(text, begin, end, entry):
+              start = text.index(begin) + len(begin)
+              stop = text.index(end, start)
+              section = text[start:stop]
+              if entry.split(" /* ", 1)[0].strip() not in section:
+                  text = text[:stop] + entry + text[stop:]
+              return text
+
+          pbx = insert_in_section(pbx, "/* Begin PBXBuildFile section */", "/* End PBXBuildFile section */", build_entry)
+          pbx = insert_in_section(pbx, "/* Begin PBXFileReference section */", "/* End PBXFileReference section */", file_entry)
+
+          group_start = pbx.index("/* Begin PBXGroup section */")
+          group_end = pbx.index("/* End PBXGroup section */", group_start)
+          group_section = pbx[group_start:group_end]
+          dummy_ref = "1FF8DBB01FBA9DE1009DE660 /* dummy.cpp */,"
+          if source_name not in group_section:
+              if dummy_ref not in group_section:
+                  raise SystemExit("Could not find the Godot app source group in project.pbxproj.")
+              group_section = group_section.replace(
+                  dummy_ref,
+                  dummy_ref + f"\n\t\t\t\t{file_id} /* {source_name} */,",
+                  1
+              )
+              pbx = pbx[:group_start] + group_section + pbx[group_end:]
+
+          sources_start = pbx.index("/* Begin PBXSourcesBuildPhase section */")
+          sources_end = pbx.index("/* End PBXSourcesBuildPhase section */", sources_start)
+          sources_section = pbx[sources_start:sources_end]
+          dummy_build = "1FF8DBB11FBA9DE1009DE660 /* dummy.cpp in Sources */,"
+          if source_name not in sources_section:
+              if dummy_build not in sources_section:
+                  raise SystemExit("Could not find the Godot Sources build phase in project.pbxproj.")
+              sources_section = sources_section.replace(
+                  dummy_build,
+                  dummy_build + f"\n\t\t\t\t{build_id} /* {source_name} in Sources */,",
+                  1
+              )
+              pbx = pbx[:sources_start] + sources_section + pbx[sources_end:]
+
+          pbx_path.write_text(pbx, encoding="utf-8")
+
+          plist_paths = list(app_dir.glob("*-Info.plist"))
+          if len(plist_paths) != 1:
+              raise SystemExit(f"Expected one app Info.plist in {app_dir}, found {len(plist_paths)}.")
+          plist_path = plist_paths[0]
+          with plist_path.open("rb") as stream:
+              info = plistlib.load(stream)
+
+          info["UIApplicationSceneManifest"] = {
+              "UIApplicationSupportsMultipleScenes": False,
+              "UISceneConfigurations": {
+                  "UIWindowSceneSessionRoleApplication": [{
+                      "UISceneConfigurationName": "Default Configuration",
+                      "UISceneDelegateClassName": "GameSceneDelegate",
+                  }]
+              }
+          }
+          with plist_path.open("wb") as stream:
+              plistlib.dump(info, stream, sort_keys=False)
+
+          # Fail before Xcode if the manifest or project source registration is incomplete.
+          with plist_path.open("rb") as stream:
+              verified = plistlib.load(stream)
+          config = verified["UIApplicationSceneManifest"]["UISceneConfigurations"]["UIWindowSceneSessionRoleApplication"][0]
+          if config["UISceneDelegateClassName"] != "GameSceneDelegate":
+              raise SystemExit("Scene delegate manifest verification failed.")
+          if build_id not in pbx or file_id not in pbx or source_name not in (app_dir / source_name).read_text(encoding="utf-8"):
+              raise SystemExit("Scene delegate Xcode project registration verification failed.")
+          print("Configured UIKit scene lifecycle and registered GameSceneDelegate.")
+          PY
+
       - name: Compile without code signing
         shell: bash
         run: |

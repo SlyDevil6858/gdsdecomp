@@ -807,6 +807,31 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Production must never carry the test-only face-button achievement gallery.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          project = Path("recovered/project.godot")
+          lines = project.read_text(encoding="utf-8-sig").splitlines()
+          if "[autoload]" not in lines:
+              raise SystemExit("project.godot has no [autoload] section.")
+          start = lines.index("[autoload]") + 1
+          end = next((i for i in range(start, len(lines)) if lines[i].startswith("[")), len(lines))
+          lines = [line for i, line in enumerate(lines) if not (start <= i < end and line.startswith("AchievementTest="))]
+          text = "\n".join(lines) + "\n"
+          if any(line.startswith("AchievementTest=") for line in lines):
+              raise SystemExit("Test-only AchievementTest autoload remains in production project.")
+          if not any(line.startswith("TouchControls=") for line in lines):
+              raise SystemExit("Production project is missing the nxnative-style TouchControls autoload.")
+          project.write_text(text, encoding="utf-8")
+          Path("recovered/UI/Achievements/AchievementTestOverlay.gd").unlink(missing_ok=True)
+          PY
+
+          if grep -R -n -E 'AchievementTestOverlay|FACE_ACTIONS|_queue_next_achievement' recovered/UI/Achievements; then
+            echo "Test-only achievement triggers found in production game files."
+            exit 1
+          fi
+
           test -f recovered/UI/Achievements/AchievementNotificationPreview.tscn
           cat > recovered/UI/Achievements/IOSAchievementPopup.gd <<'GDSCRIPT'
           extends CanvasLayer

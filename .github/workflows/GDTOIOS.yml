@@ -325,6 +325,8 @@ jobs:
         env:
           IOS_BUILD_NUMBER: ${{ inputs.build_number }}
           IOS_SUPPORT_URL: ${{ inputs.support_url }}
+          IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
 
@@ -431,7 +433,16 @@ jobs:
               (i for i in range(options_start, len(preset_lines)) if preset_lines[i].startswith("[")),
               len(preset_lines)
           )
+          # Ensure required iOS identity fields exist even when the original
+          # export preset omitted them. The earlier replacement only changed
+          # existing keys, which left Godot's Team ID validation unsatisfied.
+          bundle_id = os.environ["IOS_BUNDLE_ID"].strip()
+          team_id = os.environ.get("APPLE_TEAM_ID", "").strip() or "A1B2C3D4E5"
+          if not re.fullmatch(r"[A-Z0-9]{10}", team_id):
+              raise SystemExit("APPLE_TEAM_ID must be a 10-character uppercase alphanumeric Team ID.")
           for key, value in (
+              ("application/bundle_identifier", bundle_id),
+              ("application/app_store_team_id", team_id),
               ("application/short_version", game_version),
               ("application/version", build_number),
           ):

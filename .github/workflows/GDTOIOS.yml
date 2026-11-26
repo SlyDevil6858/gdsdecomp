@@ -71,64 +71,53 @@ jobs:
             throw "The project is missing the nxnative-style TouchControls.gd editor port."
           }
 
-          $requiredEditorFeatures = @(
-            "_build_editor_panel",
-            "_save_edit",
-            "_cancel_edit",
-            "_reset_all_controls",
-            "_on_control_selected",
-            "_on_editor_size_changed",
-            "_on_editor_opacity_changed",
-            "_set_haptics_enabled",
-            "_refresh_editor_control_options",
-            "_layout_editor_panel",
-            "_draw_settings_button",
-            "_touch_down",
-            "_touch_up"
+          # Validate the restored original touch controller. This version is a
+          # lightweight full-screen Control with direct touch handling; it does
+          # not include the later in-game layout editor or CLASSIC theme system.
+          $requiredFunctions = @(
+            "_ready",
+            "_process",
+            "_layout_controls",
+            "_face_buttons",
+            "_shoulder_buttons",
+            "_draw",
+            "_input",
+            "_begin_touch",
+            "_move_touch",
+            "_end_touch",
+            "_update_stick",
+            "_set_finger_actions",
+            "_release_all"
           )
           $requiredSourceMarkers = @(
-            "_edit_drag_all_homes",
-            '"edit_all"',
-            '"Settings"',
-            '"Z"',
-            '"Y"',
-            "joycon_toggle",
-            "_open_editor()",
+            "joycon_weapon",
+            "joycon_jump",
             "joycon_sub_1",
+            "joycon_roll",
             "joycon_sub_2",
             "joycon_crawl",
-            "joycon_l3",
-            "joycon_r3",
-            "InputMap.action_add_event",
-            "JOY_BUTTON_LEFT_STICK",
-            "JOY_BUTTON_RIGHT_STICK",
-            "JOY_BUTTON_BACK",
-            "_controller_menu_hold_started",
-            "const CLASSIC_IDLE",
-            "const CLASSIC_PRESSED",
-            "const CLASSIC_OUTLINE",
-            "const CLASSIC_STICK_TRACK",
-            "const CLASSIC_TEXT",
-            "const CLASSIC_PRESSED_TEXT"
+            "joycon_left",
+            "joycon_right",
+            "joycon_up",
+            "joycon_down",
+            "Input.parse_input_event",
+            "InputMap.has_action",
+            "InputEventScreenTouch",
+            "InputEventScreenDrag"
           )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
-          foreach ($feature in $requiredEditorFeatures) {
-            if (!$touchSource.Contains("func $feature")) {
-              throw "Touch-control editor port is missing required function: $feature"
+          foreach ($functionName in $requiredFunctions) {
+            if (!$touchSource.Contains("func $functionName")) {
+              throw "Restored touch controller is missing required function: $functionName"
             }
           }
           foreach ($marker in $requiredSourceMarkers) {
             if (!$touchSource.Contains($marker)) {
-              throw "Touch-control editor port is missing required source marker: $marker"
+              throw "Restored touch controller is missing required source marker: $marker"
             }
           }
-          if ($touchSource.Contains("_build_icon_theme_palette")) {
-            throw "The removed re-imagined icon-derived touch theme generator must not be present."
-          }
-          if ($touchSource.Contains("_macroToggleButton") -or $touchSource.Contains("toggleBYMacro")) {
-            throw "The excluded Y+B macro control must not be present in the Godot editor."
-          }
-          Write-Host "Verified current touch-control editor, settings tap, Y/Z/L/R actions, and CLASSIC palette (macro button excluded)."
+          Write-Host "Verified restored lightweight touch controller and its touch-to-InputMap actions."
+
 
       - name: Prepare uploaded iOS app icon
         shell: pwsh

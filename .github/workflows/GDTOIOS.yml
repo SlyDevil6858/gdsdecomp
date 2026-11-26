@@ -626,7 +626,7 @@ jobs:
               match = re.search(r"(?ms)^\[importer_defaults\]\s*\n.*?(?=^\[|\Z)", settings)
               if match:
                   with (target / "project.godot").open("a", encoding="utf-8") as project:
-                      project.write("\\n" + match.group(0).rstrip() + "\\n")
+                      project.write("\n" + match.group(0).rstrip() + "\n")
                   print("Preserved project-level importer defaults.")
           PY
 

@@ -66,59 +66,52 @@ jobs:
 
           Write-Host "Staged the existing decompiled Godot project at $decompiledPath. No recovery or decryption is performed."
 
-          $touchControls = Join-Path $env:GITHUB_WORKSPACE "recovered\UI\TouchControls\TouchControls.gd"
-          if (!(Test-Path $touchControls -PathType Leaf)) {
-            throw "The project is missing the nxnative-style TouchControls.gd editor port."
+          # Validate systems declared by the current game's project.godot.
+          # Autoloads are discovered from the checked-out game source, not a
+          # stale workflow-maintained list. Scene-owned systems remain in scenes.
+          $projectText = Get-Content -LiteralPath $projectFile -Raw
+          $autoloadMatch = [regex]::Match(
+            $projectText,
+            '(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\z)'
+          )
+          if (!$autoloadMatch.Success) {
+            throw "The current project.godot has no [autoload] section."
           }
 
-          # Validate the restored original touch controller. This version is a
-          # lightweight full-screen Control with direct touch handling; it does
-          # not include the later in-game layout editor or CLASSIC theme system.
-          $requiredFunctions = @(
-            "_ready",
-            "_process",
-            "_layout_controls",
-            "_face_buttons",
-            "_shoulder_buttons",
-            "_draw",
-            "_input",
-            "_begin_touch",
-            "_move_touch",
-            "_end_touch",
-            "_update_stick",
-            "_set_finger_actions",
-            "_release_all"
-          )
-          $requiredSourceMarkers = @(
-            "joycon_weapon",
-            "joycon_jump",
-            "joycon_sub_1",
-            "joycon_roll",
-            "joycon_sub_2",
-            "joycon_crawl",
-            "joycon_left",
-            "joycon_right",
-            "joycon_up",
-            "joycon_down",
-            "Input.parse_input_event",
-            "InputMap.has_action",
-            "InputEventScreenTouch",
-            "InputEventScreenDrag"
-          )
-          $touchSource = Get-Content -LiteralPath $touchControls -Raw
-          foreach ($functionName in $requiredFunctions) {
-            if (!$touchSource.Contains("func $functionName")) {
-              throw "Restored touch controller is missing required function: $functionName"
+          $autoloadNames = @()
+          foreach ($line in ($autoloadMatch.Groups[1].Value -split "\r?\n")) {
+            if ($line -match '^\s*([^;\s][^=]*)\s*=\s*"?\*?res://([^"]+)"?\s*$') {
+              $autoloadName = $Matches[1].Trim()
+              $resourcePath = $Matches[2]
+              $resourceFile = Join-Path $env:GITHUB_WORKSPACE ("recovered\" + ($resourcePath -replace '/', '\'))
+              if (!(Test-Path -LiteralPath $resourceFile -PathType Leaf)) {
+                throw "Autoload '$autoloadName' points to a missing current-project resource: res://$resourcePath"
+              }
+              $autoloadNames += $autoloadName
             }
           }
-          foreach ($marker in $requiredSourceMarkers) {
-            if (!$touchSource.Contains($marker)) {
-              throw "Restored touch controller is missing required source marker: $marker"
-            }
+          if ($autoloadNames.Count -eq 0) {
+            throw "No valid autoload systems were found in the current project.godot."
           }
-          Write-Host "Verified restored lightweight touch controller and its touch-to-InputMap actions."
+          Write-Host ("Validated current project autoloads: " + ($autoloadNames -join ", "))
 
-
+          # TouchControls is owned by Gameplay.tscn in the current DEWDROP
+          # source; it must not be injected as a project-wide autoload.
+          $touchScene = Join-Path $env:GITHUB_WORKSPACE "recovered\Locations\_Mechanics\Gameplay.tscn"
+          $touchResource = Join-Path $env:GITHUB_WORKSPACE "recovered\UI\TouchControls\TouchControls.tscn"
+          if (!(Test-Path -LiteralPath $touchScene -PathType Leaf) -or
+              !(Test-Path -LiteralPath $touchResource -PathType Leaf)) {
+            throw "Current gameplay scene or its TouchControls scene is missing."
+          }
+          $gameplayText = Get-Content -LiteralPath $touchScene -Raw
+          if ($gameplayText -notmatch 'res://UI/TouchControls/TouchControls\.tscn' -or
+              $gameplayText -notmatch '\[node name="TouchControls"[^\]]*instance=') {
+            throw "TouchControls is not instantiated by the current Gameplay.tscn."
+          }
+          if ($autoloadNames -contains "TouchControls") {
+            throw "TouchControls is scene-owned in the current game and must not be added as an autoload."
+          }
+          Write-Host "Verified current project autoloads and scene-owned TouchControls."
       - name: Prepare uploaded iOS app icon
         shell: pwsh
         run: |
@@ -874,8 +867,10 @@ jobs:
           text = "\n".join(lines) + "\n"
           if any(line.startswith("AchievementTest=") for line in lines):
               raise SystemExit("Test-only AchievementTest autoload remains in production project.")
-          if not any(line.startswith("TouchControls=") for line in lines):
-              raise SystemExit("Production project is missing the nxnative-style TouchControls autoload.")
+          # TouchControls is instantiated by Gameplay.tscn; it is not a
+          # project autoload in the current DEWDROP source.
+          if any(line.startswith("TouchControls=") for line in lines):
+              raise SystemExit("TouchControls must remain scene-owned, not a production autoload.")
           project.write_text(text, encoding="utf-8")
           test_overlay = Path("recovered/UI/Achievements/AchievementTestOverlay.gd")
           test_overlay.unlink(missing_ok=True)

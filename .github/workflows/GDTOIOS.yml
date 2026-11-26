@@ -631,52 +631,96 @@ jobs:
           PY
 
           IMPORT_LOG="$GITHUB_WORKSPACE/godot-import.log"
-          set +e
+
+          # Godot 4.2's headless --import/--quit path can terminate before
+          # EditorFileSystem finishes its first scan. Start the editor without
+          # either quit flag and wait for every output named by the .import
+          # sidecars to exist before stopping it.
           "$GODOT_BIN" \
             --headless \
             --editor \
-            --import \
             --verbose \
-            --path "$ASSET_PROJECT_DIR" 2>&1 | tee "$IMPORT_LOG"
-          GODOT_STATUS=${PIPESTATUS[0]}
-          set -e
+            --path "$ASSET_PROJECT_DIR" > "$IMPORT_LOG" 2>&1 &
+          GODOT_PID=$!
 
-          echo "Godot asset-only import exit status: $GODOT_STATUS"
+          set +e
+          python3 - "$ASSET_PROJECT_DIR" "$GODOT_PID" <<'PY'
+          import os
+          import re
+          import signal
+          import sys
+          import time
+          from pathlib import Path
+
+          project = Path(sys.argv[1])
+          godot_pid = int(sys.argv[2])
+          imported = project / ".godot" / "imported"
+          expected = set()
+
+          for sidecar in project.rglob("*.import"):
+              content = sidecar.read_text(encoding="utf-8", errors="replace")
+              match = re.search(r"(?ms)^dest_files\\s*=\\s*\\[(.*?)\\]", content)
+              if match:
+                  expected.update(re.findall(r'"res://([^"]+)"', match.group(1)))
+
+          if not expected:
+              print("No expected import outputs were found in staged sidecars.")
+              os.kill(godot_pid, signal.SIGTERM)
+              raise SystemExit(1)
+
+          print("Waiting for Godot to generate", len(expected), "import outputs.")
+          deadline = time.monotonic() + 900
+          stable_since = None
+          last_snapshot = None
+
+          while time.monotonic() < deadline:
+              missing = [path for path in expected if not (project / path).is_file()]
+              if not missing:
+                  files = list(imported.glob("*")) if imported.is_dir() else []
+                  snapshot = (len(files), sum(p.stat().st_size for p in files if p.is_file()))
+                  now = time.monotonic()
+                  if snapshot == last_snapshot:
+                      if stable_since is not None and now - stable_since >= 15:
+                          print("All expected imports exist; cache remained stable for 15 seconds.")
+                          os.kill(godot_pid, signal.SIGTERM)
+                          raise SystemExit(0)
+                  else:
+                      last_snapshot = snapshot
+                      stable_since = now
+              else:
+                  stable_since = None
+                  last_snapshot = None
+
+              try:
+                  os.kill(godot_pid, 0)
+              except ProcessLookupError:
+                  break
+              time.sleep(5)
+
+          missing = [path for path in expected if not (project / path).is_file()]
+          print("Godot import wait timed out or editor exited.")
+          print("Expected outputs:", len(expected), "Missing outputs:", len(missing))
+          for path in missing[:30]:
+              print("MISSING:", path)
+          try:
+              os.kill(godot_pid, signal.SIGTERM)
+          except ProcessLookupError:
+              pass
+          raise SystemExit(1)
+          PY
+          IMPORT_STATUS=$?
+          set -e
+          wait "$GODOT_PID" || true
+
+          echo "Godot asset import completion status: $IMPORT_STATUS"
           echo "Godot asset import diagnostics:"
           grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$IMPORT_LOG" | tail -n 120 || true
           echo "Godot asset import log: final 120 lines"
           tail -n 120 "$IMPORT_LOG"
 
-          # Godot 4.2 on macOS can return exit code 1 after a cold headless
-          # import even when no resource error is reported. A fresh editor
-          # startup is needed to validate the generated imports and expose
-          # any deferred resource-loader failures.
-          if [ "$GODOT_STATUS" -ne 0 ]; then
-            if grep -Eiq '(^|[[:space:]])ERROR:|SCRIPT ERROR:|Parse Error|no loader|cannot open|failed to load' "$IMPORT_LOG"; then
-              echo "Godot reported an asset import error; refusing to continue."
-              exit "$GODOT_STATUS"
-            fi
-            echo "Import exited non-zero without a resource error; running clean editor verification."
-          fi
-
-          VERIFY_LOG="$GITHUB_WORKSPACE/godot-import-verify.log"
-          set +e
-          "$GODOT_BIN" \
-            --headless \
-            --editor \
-            --quit \
-            --verbose \
-            --path "$ASSET_PROJECT_DIR" 2>&1 | tee "$VERIFY_LOG"
-          VERIFY_STATUS=${PIPESTATUS[0]}
-          set -e
-
-          echo "Godot asset import verification exit status: $VERIFY_STATUS"
-          grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$VERIFY_LOG" | tail -n 120 || true
-          tail -n 120 "$VERIFY_LOG"
-
-          if [ "$VERIFY_STATUS" -ne 0 ]; then
-            echo "Godot asset import verification failed."
-            exit "$VERIFY_STATUS"
+          if [ "$IMPORT_STATUS" -ne 0 ]; then
+            echo "Godot did not complete all expected asset imports."
+            exit "$IMPORT_STATUS"
           fi
 
           IMPORTED_DIR="$ASSET_PROJECT_DIR/.godot/imported"

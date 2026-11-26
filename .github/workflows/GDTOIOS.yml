@@ -780,11 +780,22 @@ jobs:
 
           mkdir -p ios-export
 
+          set +e
           "$GODOT_BIN" \
             --headless \
+            --verbose \
             --path "$GITHUB_WORKSPACE/recovered" \
             --export-debug "${{ steps.configure.outputs.ios_preset_name }}" \
-            "$GITHUB_WORKSPACE/ios-export/Game.zip"
+            "$GITHUB_WORKSPACE/ios-export/Game.zip" 2>&1 | tee ios-export/godot-export.log
+          EXPORT_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$EXPORT_STATUS" -ne 0 ]; then
+            echo "Godot iOS export failed with exit code $EXPORT_STATUS."
+            echo "Relevant Godot export diagnostics:"
+            grep -Ei 'ERROR:|WARNING:|invalid|missing|required|not found|failed|configuration|template|Team ID|bundle' ios-export/godot-export.log | tail -n 160 || true
+            exit "$EXPORT_STATUS"
+          fi
 
           if [ ! -f ios-export/Game.zip ]; then
             echo "Godot did not create the iOS export ZIP."

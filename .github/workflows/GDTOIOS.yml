@@ -445,6 +445,7 @@ jobs:
               ("application/app_store_team_id", team_id),
               ("application/short_version", game_version),
               ("application/version", build_number),
+              ("application/export_project_only", "true"),
           ):
               setting = key + "=" + json.dumps(value)
               existing = next(
@@ -829,6 +830,7 @@ jobs:
           required = {
               "application/bundle_identifier": bundle_id,
               "application/app_store_team_id": team_id,
+              "application/export_project_only": "true",
           }
           for key, value in required.items():
               matches = [i for i in range(start, end) if lines[i].startswith(key + "=")]

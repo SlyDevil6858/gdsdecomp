@@ -868,7 +868,10 @@ jobs:
                   return
               notification_playing = true
               var achievement_name: String = notification_queue.pop_front()
-              notification.show_named_achievement(achievement_name)
+              if achievement_name in ["Become Handsome", "Cold Feet", "Home Sweet Home", "Homesick", "Resisting Temptation", "The End"]:
+                  notification.show_named_achievement(achievement_name)
+              else:
+                  notification.show_achievement(achievement_name, "Achievement unlocked", null)
 
           func _on_notification_timeout() -> void:
               notification_playing = false

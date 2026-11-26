@@ -79,30 +79,34 @@ jobs:
             "_on_control_selected",
             "_on_editor_size_changed",
             "_on_editor_opacity_changed",
-            "_import_theme",
-            "_rename_theme",
-            "_delete_theme",
             "_set_haptics_enabled",
-            "_collect_theme_manifests",
-            "_copy_theme_directory",
             "_refresh_editor_control_options",
             "_layout_editor_panel",
-            "_remove_theme_directory"
+            "_draw_settings_button",
+            "_touch_down",
+            "_touch_up"
           )
           $requiredSourceMarkers = @(
             "_edit_drag_all_homes",
             '"edit_all"',
-            '"Layout"',
+            '"Settings"',
+            '"Z"',
+            "joycon_sub_1",
+            "joycon_sub_2",
+            "joycon_crawl",
             "joycon_l3",
             "joycon_r3",
-            "FileDialog.FILE_MODE_OPEN_DIR",
             "InputMap.action_add_event",
             "JOY_BUTTON_LEFT_STICK",
             "JOY_BUTTON_RIGHT_STICK",
             "JOY_BUTTON_BACK",
             "_controller_menu_hold_started",
-            "_theme_palette_value",
-            'const DEFAULT_THEME_NAME := "CLASSIC"'
+            "const CLASSIC_IDLE",
+            "const CLASSIC_PRESSED",
+            "const CLASSIC_OUTLINE",
+            "const CLASSIC_STICK_TRACK",
+            "const CLASSIC_TEXT",
+            "const CLASSIC_PRESSED_TEXT"
           )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
           foreach ($feature in $requiredEditorFeatures) {
@@ -121,7 +125,7 @@ jobs:
           if ($touchSource.Contains("_macroToggleButton") -or $touchSource.Contains("toggleBYMacro")) {
             throw "The excluded Y+B macro control must not be present in the Godot editor."
           }
-          Write-Host "Verified nxnative-style control editor features (macro button excluded)."
+          Write-Host "Verified current touch-control editor, settings tap, Y/Z/L/R actions, and CLASSIC palette (macro button excluded)."
 
       - name: Prepare uploaded iOS app icon
         shell: pwsh

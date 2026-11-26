@@ -66,6 +66,35 @@ jobs:
 
           Write-Host "Staged the existing decompiled Godot project at $decompiledPath. No recovery or decryption is performed."
 
+          $touchControls = Join-Path $env:GITHUB_WORKSPACE "recovered\UI\TouchControls\TouchControls.gd"
+          if (!(Test-Path $touchControls -PathType Leaf)) {
+            throw "The project is missing the nxnative-style TouchControls.gd editor port."
+          }
+
+          $requiredEditorFeatures = @(
+            "_build_editor_panel",
+            "_save_edit",
+            "_cancel_edit",
+            "_reset_all_controls",
+            "_on_control_selected",
+            "_on_editor_size_changed",
+            "_on_editor_opacity_changed",
+            "_import_theme",
+            "_rename_theme",
+            "_delete_theme",
+            "_set_haptics_enabled"
+          )
+          $touchSource = Get-Content -LiteralPath $touchControls -Raw
+          foreach ($feature in $requiredEditorFeatures) {
+            if (!$touchSource.Contains("func $feature") -and !$touchSource.Contains("$feature =")) {
+              throw "Touch-control editor port is missing required feature: $feature"
+            }
+          }
+          if ($touchSource.Contains("_macroToggleButton") -or $touchSource.Contains("toggleBYMacro")) {
+            throw "The excluded Y+B macro control must not be present in the Godot editor."
+          }
+          Write-Host "Verified nxnative-style control editor features (macro button excluded)."
+
       - name: Prepare uploaded iOS app icon
         shell: pwsh
         run: |

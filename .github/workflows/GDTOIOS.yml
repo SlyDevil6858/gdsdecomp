@@ -687,7 +687,7 @@ jobs:
                   return True
               # Rewriting stale source_file URIs can change Godot's 32-character
               # import hash while retaining the asset filename and output type.
-              match = re.match(r"^(.*)-[0-9a-f]{32}(\\..+)$", Path(path).name)
+              match = re.match(r"^(.*)-[0-9a-f]{32}(\..+)$", Path(path).name)
               if not match:
                   return False
               stem, suffix = match.groups()

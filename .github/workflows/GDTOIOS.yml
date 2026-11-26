@@ -86,6 +86,8 @@ jobs:
             "_collect_theme_manifests",
             "_copy_theme_directory",
             "_refresh_editor_control_options",
+            "_layout_editor_panel",
+            "_remove_theme_directory",
             "joy_trigger_left",
             "joy_trigger_right",
             "joycon_l3",

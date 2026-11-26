@@ -1228,7 +1228,8 @@ jobs:
           config = verified["UIApplicationSceneManifest"]["UISceneConfigurations"]["UIWindowSceneSessionRoleApplication"][0]
           if config["UISceneDelegateClassName"] != "GameSceneDelegate":
               raise SystemExit("Scene delegate manifest verification failed.")
-          if build_id not in pbx or file_id not in pbx or source_name not in (app_dir / source_name).read_text(encoding="utf-8"):
+          scene_source = (app_dir / source_name).read_text(encoding="utf-8")
+          if build_id not in pbx or file_id not in pbx or "GameSceneDelegate" not in scene_source:
               raise SystemExit("Scene delegate Xcode project registration verification failed.")
           print("Configured UIKit scene lifecycle and registered GameSceneDelegate.")
           PY

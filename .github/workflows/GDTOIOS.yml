@@ -156,57 +156,30 @@ jobs:
           Copy-Item $sourcePreset $targetPreset -Force
           $presetText = Get-Content $targetPreset -Raw
 
-          # Reject empty files and Git LFS pointer text instead of passing them to Godot.
-          $hasIosPreset = $presetText.Contains("[preset.") -and $presetText.Contains('platform="iOS"')
-
-          if (!$hasIosPreset) {
-            Write-Host "Source iOS preset is unavailable; generating a minimal Godot 4 iOS preset."
-            $fallbackPreset = @'
-          [preset.0]
-          name="iOS"
-          platform="iOS"
-          runnable=true
-          dedicated_server=false
-          custom_features=""
-          export_filter="all_resources"
-          include_filter=""
-          exclude_filter=""
-          export_path=""
-          encryption_include_filters=""
-          encryption_exclude_filters=""
-          encrypt_pck=false
-          encrypt_directory=false
-          script_export_mode=2
-
-          [preset.0.options]
-          custom_template/debug=""
-          custom_template/release=""
-          architectures/arm64=true
-          application/app_store_team_id=""
-          application/export_method_debug=1
-          application/code_sign_identity_debug=""
-          application/code_sign_identity_release=""
-          application/provisioning_profile_specifier_debug=""
-          application/provisioning_profile_specifier_release=""
-          application/export_method_release=0
-          application/bundle_identifier="com.example.dewdropdynasty"
-          application/signature=""
-          application/short_version="1.0.4"
-          application/version="1"
-          application/export_project_only=true
-          '@
-            [System.IO.File]::WriteAllText(
-              $targetPreset,
-              $fallbackPreset,
-              [System.Text.UTF8Encoding]::new($false)
-            )
+          # This preset is committed as an LFS pointer in the game repository,
+          # but the file is not covered by .gitattributes. Resolve the pointer
+          # explicitly instead of silently replacing the real preset with a
+          # minimal preset that Godot cannot export.
+          if ($presetText.StartsWith("version https://git-lfs.github.com/spec/v1")) {
+            Write-Host "Resolving ios-config/export_presets.cfg Git LFS object."
+            $smudgeCommand = 'git -C game-source lfs smudge < game-source\ios-config\export_presets.cfg > recovered\export_presets.cfg'
+            & cmd.exe /d /c $smudgeCommand
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not download the iOS export preset from Git LFS. Check GAME_REPO_TOKEN access to LFS objects."
+            }
+            $presetText = Get-Content $targetPreset -Raw
+            if ($presetText.StartsWith("version https://git-lfs.github.com/spec/v1")) {
+              throw "Git LFS returned a pointer instead of the actual iOS export preset."
+            }
           }
 
-          $finalPreset = Get-Content $targetPreset -Raw
-          if (!$finalPreset.Contains("[preset.") -or !$finalPreset.Contains('platform="iOS"')) {
-            throw "Could not create a valid iOS export preset."
+          if ([string]::IsNullOrWhiteSpace($presetText) -or
+              !$presetText.Contains("[preset.") -or
+              !$presetText.Contains('platform="iOS"')) {
+            throw "ios-config/export_presets.cfg must contain the real Godot iOS export preset. No fallback preset will be generated."
           }
-          Write-Host "iOS export preset ready."
+
+          Write-Host "Using the original iOS export preset from ios-config/export_presets.cfg."
           Get-Content $targetPreset | Select-Object -First 12
       - name: Detect Godot version series
         id: version

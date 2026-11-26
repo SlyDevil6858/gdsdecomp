@@ -621,9 +621,36 @@ jobs:
           echo "Godot asset import log: final 120 lines"
           tail -n 120 "$IMPORT_LOG"
 
+          # Godot 4.2 on macOS can return exit code 1 after a cold headless
+          # import even when no resource error is reported. A fresh editor
+          # startup is needed to validate the generated imports and expose
+          # any deferred resource-loader failures.
           if [ "$GODOT_STATUS" -ne 0 ]; then
-            echo "Godot asset-only import failed with exit status $GODOT_STATUS."
-            exit "$GODOT_STATUS"
+            if grep -Eiq '(^|[[:space:]])ERROR:|SCRIPT ERROR:|Parse Error|no loader|cannot open|failed to load' "$IMPORT_LOG"; then
+              echo "Godot reported an asset import error; refusing to continue."
+              exit "$GODOT_STATUS"
+            fi
+            echo "Import exited non-zero without a resource error; running clean editor verification."
+          fi
+
+          VERIFY_LOG="$GITHUB_WORKSPACE/godot-import-verify.log"
+          set +e
+          "$GODOT_BIN" \
+            --headless \
+            --editor \
+            --quit \
+            --verbose \
+            --path "$ASSET_PROJECT_DIR" 2>&1 | tee "$VERIFY_LOG"
+          VERIFY_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          echo "Godot asset import verification exit status: $VERIFY_STATUS"
+          grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$VERIFY_LOG" | tail -n 120 || true
+          tail -n 120 "$VERIFY_LOG"
+
+          if [ "$VERIFY_STATUS" -ne 0 ]; then
+            echo "Godot asset import verification failed."
+            exit "$VERIFY_STATUS"
           fi
 
           IMPORTED_DIR="$ASSET_PROJECT_DIR/.godot/imported"

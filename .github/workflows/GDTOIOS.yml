@@ -844,7 +844,7 @@ jobs:
           if re.search(r"(?m)^IOSAchievementPopup\s*=", section):
               section = re.sub(r"(?m)^IOSAchievementPopup\s*=.*$", entry, section)
           else:
-              section = section.rstrip() + "\n" + entry + "\\n"
+              section = section.rstrip() + "\n" + entry + "\n"
           text = text[:match.start(1)] + section + text[match.end(1):]
           path.write_text(text, encoding="utf-8")
           PY

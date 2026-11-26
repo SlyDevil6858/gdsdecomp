@@ -1,4 +1,4 @@
-name: Build Unsigned iOS IPA using GODOT game!
+name: DEWDROP iOS IPA - Achievement Popup Test
 
 on:
   workflow_dispatch:

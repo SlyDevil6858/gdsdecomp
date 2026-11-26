@@ -775,10 +775,89 @@ jobs:
 
       - name: Export iOS Xcode project
         shell: bash
+        env:
+          IOS_BUNDLE_ID: ${{ secrets.IOS_BUNDLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
 
           mkdir -p ios-export
+
+          # Re-assert the mandatory iOS identity settings immediately before
+          # export. This guards against earlier preset edits or section parsing
+          # leaving the Team ID out of the final options block.
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("recovered/export_presets.cfg")
+          lines = path.read_text(encoding="utf-8").splitlines()
+
+          bundle_id = os.environ.get("IOS_BUNDLE_ID", "").strip()
+          team_id = os.environ.get("APPLE_TEAM_ID", "").strip() or "A1B2C3D4E5"
+          if not bundle_id:
+              raise SystemExit("IOS_BUNDLE_ID is empty; set the repository secret.")
+          if not re.fullmatch(r"[A-Z0-9]{10}", team_id):
+              raise SystemExit("APPLE_TEAM_ID must be a 10-character uppercase alphanumeric Team ID.")
+
+          ios_index = None
+          for i, header in enumerate(lines):
+              match = re.fullmatch(r"\\[preset\\.(\\d+)\\]", header)
+              if not match:
+                  continue
+              end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("[")), len(lines))
+              section = lines[i + 1:end]
+              name = next((re.fullmatch(r'name="([^"]+)"', line).group(1)
+                           for line in section if re.fullmatch(r'name="([^"]+)"', line)), "")
+              platform = next((re.fullmatch(r'platform="([^"]+)"', line).group(1)
+                               for line in section if re.fullmatch(r'platform="([^"]+)"', line)), "")
+              if platform.lower() == "ios" or name.lower() == "ios":
+                  ios_index = match.group(1)
+                  break
+
+          if ios_index is None:
+              raise SystemExit("Could not find the iOS preset in export_presets.cfg.")
+
+          options_header = f"[preset.{ios_index}.options]"
+          if options_header not in lines:
+              raise SystemExit(f"Missing {options_header} in export_presets.cfg.")
+          start = lines.index(options_header) + 1
+          end = next((i for i in range(start, len(lines)) if lines[i].startswith("[")), len(lines))
+
+          required = {
+              "application/bundle_identifier": bundle_id,
+              "application/app_store_team_id": team_id,
+          }
+          for key, value in required.items():
+              matches = [i for i in range(start, end) if lines[i].startswith(key + "=")]
+              setting = key + "=" + json.dumps(value)
+              if matches:
+                  lines[matches[0]] = setting
+                  for duplicate in reversed(matches[1:]):
+                      del lines[duplicate]
+                      end -= 1
+              else:
+                  lines.insert(end, setting)
+                  end += 1
+
+          path.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+
+          # Read back the exact options section and fail closed if either key
+          # did not survive serialization.
+          written = path.read_text(encoding="utf-8")
+          section_match = re.search(
+              rf"(?ms)^\\[preset\\.{ios_index}\\.options\\]\\n(.*?)(?=^\\[|\\Z)",
+              written
+          )
+          if not section_match:
+              raise SystemExit("Could not read back the iOS options section.")
+          for key in required:
+              if not re.search(rf"(?m)^{re.escape(key)}=", section_match.group(1)):
+                  raise SystemExit(f"Required iOS export setting was not written: {key}")
+              print(f"Verified iOS export setting: {key}=<present>")
+          PY
 
           echo "=== iOS export environment diagnostics ==="
           echo "Xcode selection:"

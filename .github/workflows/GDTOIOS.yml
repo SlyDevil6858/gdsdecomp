@@ -565,6 +565,7 @@ jobs:
 
           [application]
           config/name="Godot Asset Import"
+          config/features=PackedStringArray("4.2")
 
           [rendering]
           renderer/rendering_method="gl_compatibility"
@@ -572,6 +573,7 @@ jobs:
 
           python3 - "$PROJECT_DIR" "$ASSET_PROJECT_DIR" <<'PY'
           import shutil
+          import re
           import sys
           from pathlib import Path
 
@@ -586,6 +588,7 @@ jobs:
               ".mp4", ".ogv", ".avi", ".mov",
           }
           counts = {}
+          sidecar_count = 0
           for path in source.rglob("*"):
               if not path.is_file() or path.suffix.lower() not in importable:
                   continue
@@ -596,12 +599,35 @@ jobs:
               suffix = path.suffix.lower()
               counts[suffix] = counts.get(suffix, 0) + 1
 
+              # The source project commits per-file importer settings and UIDs.
+              # Preserve them so textures/audio use the same Godot importers and
+              # parameters instead of relying on defaults in the temporary project.
+              source_sidecar = path.with_name(path.name + ".import")
+              if source_sidecar.is_file():
+                  sidecar_destination = destination.with_name(destination.name + ".import")
+                  shutil.copy2(source_sidecar, sidecar_destination)
+                  sidecar_count += 1
+
           if not counts:
               raise SystemExit("No importable source assets were staged.")
+          if sidecar_count == 0:
+              raise SystemExit("No source .import metadata was staged.")
           print("Staged source media by extension:")
           for suffix, count in sorted(counts.items()):
               print(f"  {suffix}: {count}")
           print("Total source media staged:", sum(counts.values()))
+          print("Source .import sidecars staged:", sidecar_count)
+
+          # Keep project-level importer defaults (notably texture defaults)
+          # without copying autoloads or gameplay project settings.
+          settings_path = source / "project.godot"
+          if settings_path.is_file():
+              settings = settings_path.read_text(encoding="utf-8")
+              match = re.search(r"(?ms)^\\[importer_defaults\\]\\s*\\n.*?(?=^\\[|\\Z)", settings)
+              if match:
+                  with (target / "project.godot").open("a", encoding="utf-8") as project:
+                      project.write("\\n" + match.group(0).rstrip() + "\\n")
+                  print("Preserved project-level importer defaults.")
           PY
 
           IMPORT_LOG="$GITHUB_WORKSPACE/godot-import.log"

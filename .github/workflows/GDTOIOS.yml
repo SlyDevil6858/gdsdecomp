@@ -857,8 +857,8 @@ jobs:
         with:
           repository: SlyDevil6858/myprivaterepo
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          tag_name: dewdrop-ios-build-${{ github.run_id }}
-          name: DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}
+          tag_name: "dewdrop-ios-build-${{ github.run_id }}"
+          name: "DEWDROP DYNASTY A15 v${{ steps.configure.outputs.game_version }} Build ${{ inputs.build_number }}"
           body: |
             Unsigned iOS build of Dewdrop Dynasty.
 
@@ -866,6 +866,6 @@ jobs:
             Support page: ${{ inputs.support_url }}
 
             This release is published privately in the Dewdrop Dynasty game repository.
-          files: DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa
+          files: "DEWDROP_DYNASTY_A15_v${{ steps.configure.outputs.game_version }}_Build_${{ inputs.build_number }}.ipa"
           fail_on_unmatched_files: true
           make_latest: false

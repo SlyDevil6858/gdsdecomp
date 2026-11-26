@@ -824,7 +824,7 @@ jobs:
                   Steam.achievement_unlocked.connect(_on_achievement_unlocked)
 
           func _on_achievement_unlocked(achievement_name: String) -> void:
-              if notification.has_method("show_named_achievement"):
+              if achievement_name in ["Become Handsome", "Cold Feet", "Home Sweet Home", "Homesick", "Resisting Temptation", "The End"]:
                   notification.show_named_achievement(achievement_name)
               else:
                   notification.show_achievement(achievement_name, "Achievement unlocked", null)
@@ -836,15 +836,15 @@ jobs:
 
           path = Path("recovered/project.godot")
           text = path.read_text(encoding="utf-8-sig")
-          match = re.search(r"(?ms)^\\[autoload\\]\\s*\\n(.*?)(?=^\\[|\\Z)", text)
+          match = re.search(r"(?ms)^\[autoload\]\s*\n(.*?)(?=^\[|\Z)", text)
           if not match:
               raise SystemExit("project.godot has no [autoload] section.")
           section = match.group(1)
           entry = 'IOSAchievementPopup="*res://UI/Achievements/IOSAchievementPopup.gd"'
-          if re.search(r"(?m)^IOSAchievementPopup\\s*=", section):
-              section = re.sub(r"(?m)^IOSAchievementPopup\\s*=.*$", entry, section)
+          if re.search(r"(?m)^IOSAchievementPopup\s*=", section):
+              section = re.sub(r"(?m)^IOSAchievementPopup\s*=.*$", entry, section)
           else:
-              section = section.rstrip() + "\\n" + entry + "\\n"
+              section = section.rstrip() + "\n" + entry + "\\n"
           text = text[:match.start(1)] + section + text[match.end(1):]
           path.write_text(text, encoding="utf-8")
           PY

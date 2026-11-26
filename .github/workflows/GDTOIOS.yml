@@ -550,133 +550,117 @@ jobs:
 
           PROJECT_DIR="$GITHUB_WORKSPACE/recovered"
 
-          # This is a disposable build copy. The committed .import sidecars
-          # were produced by a different importer registry/version: Godot
-          # 4.2.2 reports invalid importers for the entire project when they
-          # are reused. Regenerate metadata from the original source assets.
-          # This does not modify the game repository or its committed sidecars.
-          rm -rf "$PROJECT_DIR/.godot"
-          find "$PROJECT_DIR" -type f -name "*.import" -delete
-          mkdir -p "$PROJECT_DIR/.godot"
-          echo "Removed stale import sidecars from build copy; remaining: $(find "$PROJECT_DIR" -type f -name "*.import" | wc -l | tr -d ' ')"
+          # Build an isolated asset-only Godot project. The full project contains
+          # scenes/resources that preload textures and audio during filesystem
+          # scanning; those references were being parsed before their importers
+          # had generated cache files. Importing in a clean project with only
+          # source media prevents scripts, scenes, and .tres resources from
+          # requesting assets during the importer bootstrap.
+          ASSET_PROJECT_DIR="$GITHUB_WORKSPACE/asset-import"
+          rm -rf "$PROJECT_DIR/.godot" "$ASSET_PROJECT_DIR"
+          mkdir -p "$PROJECT_DIR/.godot" "$ASSET_PROJECT_DIR"
 
-          # Godot may parse scripts and scenes during import; temporarily hide them
-          # so source textures/audio are imported before their preload scripts return.
-          PROJECT_FILE="$PROJECT_DIR/project.godot"
-          PROJECT_BACKUP="$(mktemp)"
-          CODE_BACKUP="$(mktemp)"
-          CODE_FILE_LIST="$(mktemp)"
-          cp "$PROJECT_FILE" "$PROJECT_BACKUP"
+          cat > "$ASSET_PROJECT_DIR/project.godot" <<'EOF'
+          config_version=5
 
-          restore_import_inputs() {
-            if [ -s "$CODE_BACKUP" ]; then
-              tar -xf "$CODE_BACKUP" -C "$PROJECT_DIR"
-            fi
-            cp "$PROJECT_BACKUP" "$PROJECT_FILE"
-            rm -f "$PROJECT_BACKUP" "$CODE_BACKUP" "$CODE_FILE_LIST"
-          }
-          trap restore_import_inputs EXIT
+          [application]
+          config/name="Godot Asset Import"
 
-          # The editor may parse every script/scene while importing. Those
-          # files preload textures and audio whose import cache does not exist
-          # yet on a clean runner. Hide code/scene definitions for this pass,
-          # so Godot imports only the original source assets first.
-          # Keep .tres/.res resources in place: scripts preload these files,
-          # so removing them recreates "Preload file does not exist" errors.
-          # Hide only scripts/scenes during the raw-asset import pass.
-          (cd "$PROJECT_DIR" && find . -type f \( \
-            -name '*.gd' -o -name '*.tscn' \) -print0) > "$CODE_FILE_LIST"
-          if [ -s "$CODE_FILE_LIST" ]; then
-            tar -C "$PROJECT_DIR" --null -T "$CODE_FILE_LIST" -cf "$CODE_BACKUP"
-            while IFS= read -r -d '' source_file; do
-              rm -f "$PROJECT_DIR/${source_file#./}"
-            done < "$CODE_FILE_LIST"
-          fi
-          REMAINING_CODE="$(find "$PROJECT_DIR" -type f \( -name '*.gd' -o -name '*.tscn' \) -print -quit)"
-          if [ -n "$REMAINING_CODE" ]; then
-            echo "Failed to hide project script/scene: $REMAINING_CODE"
-            exit 1
-          fi
-          echo "Temporarily hid $(tr -cd '\\0' < "$CODE_FILE_LIST" | wc -c | tr -d ' ') script/scene files."
+          [rendering]
+          renderer/rendering_method="gl_compatibility"
+          EOF
 
-          python3 - "$PROJECT_FILE" <<'PY'
+          python3 - "$PROJECT_DIR" "$ASSET_PROJECT_DIR" <<'PY'
+          import shutil
           import sys
           from pathlib import Path
 
-          path = Path(sys.argv[1])
-          lines = path.read_text(encoding="utf-8").splitlines()
-          output = []
-          skipping_autoload = False
-          for line in lines:
-              stripped = line.strip()
-              if stripped.startswith("[") and stripped.endswith("]"):
-                  skipping_autoload = stripped == "[autoload]"
-                  output.append(line)
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          # Godot 4.2 built-in source media importers used by this project.
+          importable = {
+              ".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp", ".tga",
+              ".dds", ".exr", ".hdr", ".ktx",
+              ".wav", ".ogg", ".mp3", ".flac", ".aiff", ".aif",
+              ".ttf", ".otf", ".woff", ".woff2",
+              ".mp4", ".ogv", ".avi", ".mov",
+          }
+          counts = {}
+          for path in source.rglob("*"):
+              if not path.is_file() or path.suffix.lower() not in importable:
                   continue
-              if skipping_autoload:
-                  continue
-              # Prevent project settings from eagerly loading res:// resources.
-              if "=" in line and "res://" in line:
-                  continue
-              output.append(line)
-          path.write_text("\n".join(output) + "\n", encoding="utf-8")
+              relative = path.relative_to(source)
+              destination = target / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(path, destination)
+              suffix = path.suffix.lower()
+              counts[suffix] = counts.get(suffix, 0) + 1
+
+          if not counts:
+              raise SystemExit("No importable source assets were staged.")
+          print("Staged source media by extension:")
+          for suffix, count in sorted(counts.items()):
+              print(f"  {suffix}: {count}")
+          print("Total source media staged:", sum(counts.values()))
           PY
 
           IMPORT_LOG="$GITHUB_WORKSPACE/godot-import.log"
-          # Godot 4.2 on macOS can complete a first headless import but
-          # return status 1 while shutting down the editor. A second editor
-          # pass verifies the imported project and reports real resource errors.
           set +e
           "$GODOT_BIN" \
             --headless \
-            --path "$PROJECT_DIR" \
             --editor \
-            --import \
-            --verbose 2>&1 | tee "$IMPORT_LOG"
-          IMPORT_STATUS=${PIPESTATUS[0]}
-
-          "$GODOT_BIN" \
-            --headless \
-            --path "$PROJECT_DIR" \
-            --editor \
-            --quit \
-            --verbose 2>&1 | tee -a "$IMPORT_LOG"
-          VERIFY_STATUS=${PIPESTATUS[0]}
+            --verbose \
+            --path "$ASSET_PROJECT_DIR" \
+            --quit-after 18000 2>&1 | tee "$IMPORT_LOG"
+          GODOT_STATUS=${PIPESTATUS[0]}
           set -e
 
-          GODOT_STATUS="$VERIFY_STATUS"
-          if [ "$IMPORT_STATUS" -ne 0 ] && [ "$VERIFY_STATUS" -eq 0 ]; then
-            echo "Godot first-import shutdown returned $IMPORT_STATUS; second editor verification passed."
-          fi
-
-          # Always restore source files before inspecting the result or exiting.
-          restore_import_inputs
-          trap - EXIT
-
-          IMPORTED_DIR="$PROJECT_DIR/.godot/imported"
-          echo "Godot import process exit status: $GODOT_STATUS"
-          echo "Imported cache file count: $(find "$IMPORTED_DIR" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
-          # Print the actual Godot failure before any optional inventory commands.
-          echo "Godot import log: diagnostic lines"
-          grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$IMPORT_LOG" | tail -n 100 || true
-          echo "Godot import log: final 160 lines"
-          tail -n 160 "$IMPORT_LOG"
+          echo "Godot asset-only import exit status: $GODOT_STATUS"
+          echo "Godot asset import diagnostics:"
+          grep -Ei '(^|[[:space:]])(ERROR|WARNING):|error:|failed|no loader|cannot open|parse error|invalid' "$IMPORT_LOG" | tail -n 120 || true
+          echo "Godot asset import log: final 120 lines"
+          tail -n 120 "$IMPORT_LOG"
 
           if [ "$GODOT_STATUS" -ne 0 ]; then
-            echo "Godot asset import failed with exit status $GODOT_STATUS; diagnostics above."
+            echo "Godot asset-only import failed with exit status $GODOT_STATUS."
             exit "$GODOT_STATUS"
           fi
 
-          # Godot 4.2 generates the imported cache filename from the import
-          # settings, so don't assume the hash embedded in the .ctex name.
-          LOGO_IMPORT="$(find "$IMPORTED_DIR" -maxdepth 1 -type f \
-            -name 'Firith_Bumper_Logo.png-*.ctex' -print -quit)"
-          if [ -z "$LOGO_IMPORT" ] || [ ! -s "$LOGO_IMPORT" ]; then
-            echo "Godot import did not create the Firith bumper logo texture."
+          IMPORTED_DIR="$ASSET_PROJECT_DIR/.godot/imported"
+          if [ ! -d "$IMPORTED_DIR" ]; then
+            echo "Godot did not create an asset import cache."
             exit 1
           fi
 
-          echo "Godot import cache verified. Imported files: $(find "$IMPORTED_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          # Transfer the generated cache and matching sidecars into the real
+          # project without copying the temporary asset-only project settings.
+          mkdir -p "$PROJECT_DIR/.godot/imported"
+          cp -R "$IMPORTED_DIR/." "$PROJECT_DIR/.godot/imported/"
+          python3 - "$ASSET_PROJECT_DIR" "$PROJECT_DIR" <<'PY'
+          import shutil
+          import sys
+          from pathlib import Path
+
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          sidecars = list(source.rglob("*.import"))
+          for sidecar in sidecars:
+              relative = sidecar.relative_to(source)
+              destination = target / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(sidecar, destination)
+          print("Transferred generated import sidecars:", len(sidecars))
+          PY
+
+          LOGO_IMPORT="$(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f \
+            -name 'Firith_Bumper_Logo.png-*.ctex' -print -quit)"
+          if [ -z "$LOGO_IMPORT" ] || [ ! -s "$LOGO_IMPORT" ]; then
+            echo "Godot asset-only import did not create the Firith bumper logo texture."
+            exit 1
+          fi
+
+          echo "Godot asset-only import cache verified. Imported files: $(find "$PROJECT_DIR/.godot/imported" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          echo "Generated import sidecars: $(find "$PROJECT_DIR" -type f -name '*.import' | wc -l | tr -d ' ')"
 
       - name: Export iOS Xcode project
         shell: bash

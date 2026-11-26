@@ -82,7 +82,14 @@ jobs:
             "_import_theme",
             "_rename_theme",
             "_delete_theme",
-            "_set_haptics_enabled"
+            "_set_haptics_enabled",
+            "_collect_theme_manifests",
+            "_copy_theme_directory",
+            "_refresh_editor_control_options",
+            "joycon_zl",
+            "joycon_zr",
+            "joycon_l3",
+            "joycon_r3"
           )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
           foreach ($feature in $requiredEditorFeatures) {

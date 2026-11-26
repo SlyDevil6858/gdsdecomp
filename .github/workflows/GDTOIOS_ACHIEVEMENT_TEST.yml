@@ -91,7 +91,11 @@ jobs:
             "joy_trigger_left",
             "joy_trigger_right",
             "joycon_l3",
-            "joycon_r3"
+            "joycon_r3",
+            "FileDialog.FILE_MODE_OPEN_DIR",
+            "InputMap.action_add_event",
+            "JOY_BUTTON_LEFT_STICK",
+            "JOY_BUTTON_RIGHT_STICK"
           )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
           foreach ($feature in $requiredEditorFeatures) {

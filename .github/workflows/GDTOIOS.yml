@@ -623,14 +623,31 @@ jobs:
           PY
 
           IMPORT_LOG="$GITHUB_WORKSPACE/godot-import.log"
+          # Godot 4.2 on macOS can complete a first headless import but
+          # return status 1 while shutting down the editor. A second editor
+          # pass verifies the imported project and reports real resource errors.
           set +e
           "$GODOT_BIN" \
             --headless \
             --path "$PROJECT_DIR" \
+            --editor \
             --import \
             --verbose 2>&1 | tee "$IMPORT_LOG"
-          GODOT_STATUS=${PIPESTATUS[0]}
+          IMPORT_STATUS=${PIPESTATUS[0]}
+
+          "$GODOT_BIN" \
+            --headless \
+            --path "$PROJECT_DIR" \
+            --editor \
+            --quit \
+            --verbose 2>&1 | tee -a "$IMPORT_LOG"
+          VERIFY_STATUS=${PIPESTATUS[0]}
           set -e
+
+          GODOT_STATUS="$VERIFY_STATUS"
+          if [ "$IMPORT_STATUS" -ne 0 ] && [ "$VERIFY_STATUS" -eq 0 ]; then
+            echo "Godot first-import shutdown returned $IMPORT_STATUS; second editor verification passed."
+          fi
 
           # Always restore source files before inspecting the result or exiting.
           restore_import_inputs

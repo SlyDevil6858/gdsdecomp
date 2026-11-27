@@ -316,8 +316,7 @@ jobs:
 
           # Godot 4.2 iOS plugins are native static libraries registered by
           # a .gdip manifest. Build against the exact 4.2.2 engine headers.
-          python3 -m pip install --user scons
-          export PATH="$HOME/Library/Python/3.*/bin:$HOME/.local/bin:$PATH"
+          brew install scons
 
           git clone --depth 1 --recurse-submodules https://github.com/godot-sdk-integrations/godot-ios-plugins.git godot-ios-plugins
           git -C godot-ios-plugins/godot fetch --tags

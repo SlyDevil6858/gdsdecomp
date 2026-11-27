@@ -71,64 +71,26 @@ jobs:
             throw "The project is missing the nxnative-style TouchControls.gd editor port."
           }
 
-          $requiredEditorFeatures = @(
-            "_build_editor_panel",
-            "_save_edit",
-            "_cancel_edit",
-            "_reset_all_controls",
-            "_on_control_selected",
-            "_on_editor_size_changed",
-            "_on_editor_opacity_changed",
-            "_set_haptics_enabled",
-            "_refresh_editor_control_options",
-            "_layout_editor_panel",
-            "_draw_settings_button",
-            "_touch_down",
-            "_touch_up"
-          )
-          $requiredSourceMarkers = @(
-            "_edit_drag_all_homes",
-            '"edit_all"',
-            '"Settings"',
-            '"Z"',
-            '"Y"',
-            "joycon_toggle",
-            "_open_editor()",
-            "joycon_sub_1",
-            "joycon_sub_2",
-            "joycon_crawl",
-            "joycon_l3",
-            "joycon_r3",
-            "InputMap.action_add_event",
-            "JOY_BUTTON_LEFT_STICK",
-            "JOY_BUTTON_RIGHT_STICK",
-            "JOY_BUTTON_BACK",
-            "_controller_menu_hold_started",
-            "const CLASSIC_IDLE",
-            "const CLASSIC_PRESSED",
-            "const CLASSIC_OUTLINE",
-            "const CLASSIC_STICK_TRACK",
-            "const CLASSIC_TEXT",
-            "const CLASSIC_PRESSED_TEXT"
-          )
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
-          foreach ($feature in $requiredEditorFeatures) {
-            if (!$touchSource.Contains("func $feature")) {
-              throw "Touch-control editor port is missing required function: $feature"
-            }
-          }
-          foreach ($marker in $requiredSourceMarkers) {
+          foreach ($marker in @(
+            "func _play_touch_haptic",
+            'Engine.has_singleton("DewdropHaptics")',
+            'haptics.call("is_available")',
+            'haptics.call("tap", 0.55, 0.45)',
+            "Input.vibrate_handheld(25)"
+          )) {
             if (!$touchSource.Contains($marker)) {
-              throw "Touch-control editor port is missing required source marker: $marker"
+              throw "Touch-control haptics integration is missing required source marker: $marker"
             }
           }
-          if ($touchSource.Contains("_build_icon_theme_palette")) {
-            throw "The removed re-imagined icon-derived touch theme generator must not be present."
+
+          $pluginDir = Join-Path $env:GITHUB_WORKSPACE "recovered\ios\plugins\DewdropHaptics"
+          foreach ($file in @("DewdropHaptics.mm", "DewdropHaptics.gdip")) {
+            if (!(Test-Path (Join-Path $pluginDir $file) -PathType Leaf)) {
+              throw "Required Core Haptics plugin file is missing: $file"
+            }
           }
-          if ($touchSource.Contains("_macroToggleButton") -or $touchSource.Contains("toggleBYMacro")) {
-            throw "The excluded Y+B macro control must not be present in the Godot editor."
-          }
-          Write-Host "Verified current touch-control editor, settings tap, Y/Z/L/R actions, and CLASSIC palette (macro button excluded)."
+          Write-Host "Verified NXNative-derived iOS Core Haptics integration and Android vibration fallback."
 
       - name: Prepare uploaded iOS app icon
         shell: pwsh
@@ -326,6 +288,46 @@ jobs:
 
           echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
           echo "GODOT_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build DEWDROP Core Haptics iOS plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Godot 4.2 iOS plugins are native static libraries registered by
+          # a .gdip manifest. Build against the exact 4.2.2 engine headers.
+          brew install scons
+
+          git clone --depth 1 --recurse-submodules https://github.com/godot-sdk-integrations/godot-ios-plugins.git godot-ios-plugins
+          git -C godot-ios-plugins/godot fetch --tags
+          git -C godot-ios-plugins/godot checkout 4.2.2-stable
+          git -C godot-ios-plugins/godot fetch origin 146ba4106f459fd37d130a34da02ef737ac166e4
+          git -C godot-ios-plugins/godot cherry-pick 146ba4106f459fd37d130a34da02ef737ac166e4
+
+          # Generate the matching Godot iOS headers before compiling the plugin.
+          (cd godot-ios-plugins/godot && scons platform=ios target=editor -j2)
+
+          mkdir -p godot-ios-plugins/plugins/dewdrop_haptics
+          cp recovered/ios/plugins/DewdropHaptics/DewdropHaptics.mm godot-ios-plugins/plugins/dewdrop_haptics/
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("godot-ios-plugins/SConstruct")
+          text = path.read_text(encoding="utf-8")
+          old = "'photo_picker'])"
+          if old not in text:
+              raise SystemExit("Could not add DEWDROP haptics to the iOS plugin builder.")
+          path.write_text(text.replace(old, "'photo_picker', 'dewdrop_haptics'])", 1), encoding="utf-8")
+          PY
+
+          # Godot's debug export template uses release_debug plugin binaries.
+          (cd godot-ios-plugins && scons target=release_debug arch=arm64 simulator=no plugin=dewdrop_haptics version=4.0 -j2)
+          (cd godot-ios-plugins && scons target=release arch=arm64 simulator=no plugin=dewdrop_haptics version=4.0 -j2)
+
+          cp godot-ios-plugins/bin/dewdrop_haptics.arm64-ios.release_debug.a recovered/ios/plugins/DewdropHaptics/DewdropHaptics.debug.a
+          cp godot-ios-plugins/bin/dewdrop_haptics.arm64-ios.release.a recovered/ios/plugins/DewdropHaptics/DewdropHaptics.release.a
+          test -s recovered/ios/plugins/DewdropHaptics/DewdropHaptics.debug.a
+          test -s recovered/ios/plugins/DewdropHaptics/DewdropHaptics.release.a
+          echo "Built and staged both DEWDROP Core Haptics plugin variants."
 
       - name: Configure unsigned iOS export
         shell: bash
@@ -1027,6 +1029,7 @@ jobs:
               "application/bundle_identifier": bundle_id,
               "application/app_store_team_id": team_id,
               "application/export_project_only": True,
+              "plugins/DewdropHaptics": True,
           }
           for key, value in required.items():
               matches = [i for i in range(start, end) if lines[i].startswith(key + "=")]

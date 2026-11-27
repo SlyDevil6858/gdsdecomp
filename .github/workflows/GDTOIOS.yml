@@ -309,6 +309,47 @@ jobs:
           echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
           echo "GODOT_VERSION=$VERSION" >> "$GITHUB_ENV"
 
+      - name: Build DEWDROP Core Haptics iOS plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Godot 4.2 iOS plugins are native static libraries registered by
+          # a .gdip manifest. Build against the exact 4.2.2 engine headers.
+          python3 -m pip install --user scons
+          export PATH="$HOME/Library/Python/3.*/bin:$HOME/.local/bin:$PATH"
+
+          git clone --depth 1 --recurse-submodules https://github.com/godot-sdk-integrations/godot-ios-plugins.git godot-ios-plugins
+          git -C godot-ios-plugins/godot fetch --tags
+          git -C godot-ios-plugins/godot checkout 4.2.2-stable
+          git -C godot-ios-plugins/godot fetch origin 146ba4106f459fd37d130a34da02ef737ac166e4
+          git -C godot-ios-plugins/godot cherry-pick 146ba4106f459fd37d130a34da02ef737ac166e4
+
+          # Generate the matching Godot iOS headers before compiling the plugin.
+          (cd godot-ios-plugins/godot && scons platform=ios target=editor -j2)
+
+          mkdir -p godot-ios-plugins/plugins/dewdrop_haptics
+          cp recovered/ios/plugins/DewdropHaptics/DewdropHaptics.mm godot-ios-plugins/plugins/dewdrop_haptics/
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("godot-ios-plugins/SConstruct")
+          text = path.read_text(encoding="utf-8")
+          old = "'photo_picker'])"
+          if old not in text:
+              raise SystemExit("Could not add DEWDROP haptics to the iOS plugin builder.")
+          path.write_text(text.replace(old, "'photo_picker', 'dewdrop_haptics'])", 1), encoding="utf-8")
+          PY
+
+          # Godot's debug export template uses release_debug plugin binaries.
+          (cd godot-ios-plugins && scons target=release_debug arch=arm64 simulator=no plugin=dewdrop_haptics version=4.0 -j2)
+          (cd godot-ios-plugins && scons target=release arch=arm64 simulator=no plugin=dewdrop_haptics version=4.0 -j2)
+
+          cp godot-ios-plugins/bin/dewdrop_haptics.arm64-ios.release_debug.a recovered/ios/plugins/DewdropHaptics/DewdropHaptics.debug.a
+          cp godot-ios-plugins/bin/dewdrop_haptics.arm64-ios.release.a recovered/ios/plugins/DewdropHaptics/DewdropHaptics.release.a
+          test -s recovered/ios/plugins/DewdropHaptics/DewdropHaptics.debug.a
+          test -s recovered/ios/plugins/DewdropHaptics/DewdropHaptics.release.a
+          echo "Built and staged both DEWDROP Core Haptics plugin variants."
+
       - name: Configure unsigned iOS export
         shell: bash
         env:

@@ -1033,6 +1033,7 @@ jobs:
               "application/export_project_only": True,
               "user_data/accessible_from_files_app": True,
               "user_data/accessible_from_itunes_sharing": True,
+              "plugins/DewdropHaptics": True,
           }
           for key, value in required.items():
               matches = [i for i in range(start, end) if lines[i].startswith(key + "=")]

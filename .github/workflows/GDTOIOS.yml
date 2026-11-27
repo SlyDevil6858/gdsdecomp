@@ -517,6 +517,10 @@ jobs:
               ("application/short_version", game_version),
               ("application/version", build_number),
               ("application/export_project_only", True),
+              # Expose the app's Documents folder in the iOS Files app and
+              # through device file sharing. Godot stores user:// data here.
+              ("user_data/accessible_from_files_app", True),
+              ("user_data/accessible_from_itunes_sharing", True),
           ):
               setting = key + "=" + json.dumps(value)
               existing = next(
@@ -986,6 +990,8 @@ jobs:
               "application/bundle_identifier": bundle_id,
               "application/app_store_team_id": team_id,
               "application/export_project_only": True,
+              "user_data/accessible_from_files_app": True,
+              "user_data/accessible_from_itunes_sharing": True,
           }
           for key, value in required.items():
               matches = [i for i in range(start, end) if lines[i].startswith(key + "=")]
@@ -1232,6 +1238,11 @@ jobs:
           with plist_path.open("rb") as stream:
               info = plistlib.load(stream)
 
+          # Make the app's Documents directory visible in Files and
+          # available through device file sharing.
+          info["UIFileSharingEnabled"] = True
+          info["LSSupportsOpeningDocumentsInPlace"] = True
+
           info["UIApplicationSceneManifest"] = {
               "UIApplicationSupportsMultipleScenes": False,
               "UISceneConfigurations": {
@@ -1250,6 +1261,10 @@ jobs:
           config = verified["UIApplicationSceneManifest"]["UISceneConfigurations"]["UIWindowSceneSessionRoleApplication"][0]
           if config["UISceneDelegateClassName"] != "GameSceneDelegate":
               raise SystemExit("Scene delegate manifest verification failed.")
+          if verified.get("UIFileSharingEnabled") is not True:
+              raise SystemExit("iOS file sharing is not enabled in Info.plist.")
+          if verified.get("LSSupportsOpeningDocumentsInPlace") is not True:
+              raise SystemExit("Files app document access is not enabled in Info.plist.")
           scene_source = (app_dir / source_name).read_text(encoding="utf-8")
           if build_id not in pbx or file_id not in pbx or "GameSceneDelegate" not in scene_source:
               raise SystemExit("Scene delegate Xcode project registration verification failed.")

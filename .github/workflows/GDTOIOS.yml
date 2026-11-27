@@ -323,7 +323,7 @@ jobs:
           git -C godot-ios-plugins/godot checkout 4.2.2-stable
 
           # Generate the matching Godot iOS headers before compiling the plugin.
-          (cd godot-ios-plugins/godot && scons platform=ios target=editor module_embree_enabled=no -j2)
+          (cd godot-ios-plugins/godot && scons platform=ios target=editor module_raycast_enabled=no -j2)
 
           mkdir -p godot-ios-plugins/plugins/dewdrop_haptics
           cp recovered/ios/plugins/DewdropHaptics/DewdropHaptics.mm godot-ios-plugins/plugins/dewdrop_haptics/

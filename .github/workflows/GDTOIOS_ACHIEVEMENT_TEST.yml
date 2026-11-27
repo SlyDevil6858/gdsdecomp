@@ -72,7 +72,7 @@ jobs:
           }
 
           $touchSource = Get-Content -LiteralPath $touchControls -Raw
-          if (!$touchSource.Contains("Input.vibrate_handheld(25)")) {
+          if (!$touchSource.Contains("Input.vibrate_handheld(12)")) {
             throw "Godot native handheld haptic feedback call is missing."
           }
           Write-Host "Verified Godot native handheld haptic feedback integration."

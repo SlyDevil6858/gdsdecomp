@@ -321,8 +321,6 @@ jobs:
           git clone --depth 1 --recurse-submodules https://github.com/godot-sdk-integrations/godot-ios-plugins.git godot-ios-plugins
           git -C godot-ios-plugins/godot fetch --tags
           git -C godot-ios-plugins/godot checkout 4.2.2-stable
-          git -C godot-ios-plugins/godot fetch origin 146ba4106f459fd37d130a34da02ef737ac166e4
-          git -C godot-ios-plugins/godot cherry-pick 146ba4106f459fd37d130a34da02ef737ac166e4
 
           # Generate the matching Godot iOS headers before compiling the plugin.
           (cd godot-ios-plugins/godot && scons platform=ios target=editor -j2)

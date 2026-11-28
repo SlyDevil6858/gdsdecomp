@@ -292,7 +292,7 @@ jobs:
               --pattern "Godot_v${VERSION}-stable_export_templates.tpz"
           else
             echo "No private toolchain release exists yet; downloading the official Godot 4.2.2 files from the TuxFamily mirror."
-            MIRROR_URL="https://downloads.tuxfamily.org/godotengine/${VERSION}"
+            MIRROR_URL="https://downloads.godotengine.org/?flavor=stable&version=${VERSION}"
 
             curl --fail --location --retry 3 --retry-all-errors \
               "$MIRROR_URL/Godot_v${VERSION}-stable_macos.universal.zip" \

@@ -40,12 +40,13 @@ jobs:
             exit 0
           fi
 
-          BASE="https://downloads.godotengine.org/?flavor=stable&version=${VERSION}"
           EDITOR="Godot_v${VERSION}-stable_macos.universal.zip"
           TEMPLATES="Godot_v${VERSION}-stable_export_templates.tpz"
+          GODOT_URL="https://downloads.godotengine.org/?flavor=stable&platform=macos.universal&slug=macos.universal.zip&version=${VERSION}"
+          TEMPLATES_URL="https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${VERSION}"
 
-          curl --fail --location --retry 3 --retry-all-errors "$BASE/$EDITOR" -o "$DIR/$EDITOR"
-          curl --fail --location --retry 3 --retry-all-errors "$BASE/$TEMPLATES" -o "$DIR/$TEMPLATES"
+          curl --fail --location --retry 3 --retry-all-errors "$GODOT_URL" -o "$DIR/$EDITOR"
+          curl --fail --location --retry 3 --retry-all-errors "$TEMPLATES_URL" -o "$DIR/$TEMPLATES"
 
           unzip -tq "$DIR/$EDITOR"
           unzip -tq "$DIR/$TEMPLATES"

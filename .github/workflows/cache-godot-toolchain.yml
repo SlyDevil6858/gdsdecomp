@@ -1,0 +1,59 @@
+name: Cache Godot 4.2.2 iOS Toolchain
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/cache-godot-toolchain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cache-toolchain:
+    name: Download and cache Godot 4.2.2
+    runs-on: macos-14
+    steps:
+      - name: Download, validate, and publish toolchain to private game repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GAME_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          VERSION="4.2.2"
+          GAME_REPO="SlyDevil6858/myprivaterepo"
+          TAG="godot-${VERSION}-ios-toolchain"
+          DIR="$RUNNER_TEMP/godot-toolchain"
+          mkdir -p "$DIR"
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "GAME_REPO_TOKEN secret is missing."
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GAME_REPO" >/dev/null 2>&1; then
+            echo "Private toolchain release already exists; nothing to download."
+            gh release view "$TAG" --repo "$GAME_REPO"
+            exit 0
+          fi
+
+          BASE="https://downloads.tuxfamily.org/godotengine/${VERSION}"
+          EDITOR="Godot_v${VERSION}-stable_macos.universal.zip"
+          TEMPLATES="Godot_v${VERSION}-stable_export_templates.tpz"
+
+          curl --fail --location --retry 3 --retry-all-errors "$BASE/$EDITOR" -o "$DIR/$EDITOR"
+          curl --fail --location --retry 3 --retry-all-errors "$BASE/$TEMPLATES" -o "$DIR/$TEMPLATES"
+
+          unzip -tq "$DIR/$EDITOR"
+          unzip -tq "$DIR/$TEMPLATES"
+
+          gh release create "$TAG" --repo "$GAME_REPO" \
+            --title "Godot ${VERSION} iOS build toolchain" \
+            --notes "Official Godot ${VERSION} macOS universal editor and export templates, cached for repeat iOS builds."
+
+          gh release upload "$TAG" "$DIR/$EDITOR" "$DIR/$TEMPLATES" --repo "$GAME_REPO"
+
+          echo "Published both validated Godot toolchain assets to $GAME_REPO release $TAG."

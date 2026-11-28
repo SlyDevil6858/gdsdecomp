@@ -270,41 +270,73 @@ jobs:
           name: recovered-godot-project
           path: recovered
 
-      - name: Install matching Godot version and templates
+      - name: Download or seed private Godot toolchain
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GAME_REPO_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Keep the editor and export templates on the project's verified version.
-          # Use direct release asset URLs: both the GitHub API and Godot's
-          # download redirect service returned HTTP 403 on this runner.
           VERSION="4.2.2"
-          RELEASE_URL="https://github.com/godotengine/godot/releases/download/${VERSION}-stable"
+          TOOLCHAIN_TAG="godot-${VERSION}-ios-toolchain"
+          GAME_REPO="${{ inputs.game_repository }}"
+          TOOLCHAIN_DIR="$GITHUB_WORKSPACE/godot-toolchain"
+          mkdir -p "$TOOLCHAIN_DIR"
 
-          curl --fail --location --retry 3 --retry-all-errors \
-            "${RELEASE_URL}/Godot_v${VERSION}-stable_macos.universal.zip" \
-            -o godot.zip
+          if gh release view "$TOOLCHAIN_TAG" --repo "$GAME_REPO" >/dev/null 2>&1; then
+            echo "Found the cached Godot toolchain in $GAME_REPO."
+            gh release download "$TOOLCHAIN_TAG" \
+              --repo "$GAME_REPO" \
+              --dir "$TOOLCHAIN_DIR" \
+              --pattern "Godot_v${VERSION}-stable_macos.universal.zip" \
+              --pattern "Godot_v${VERSION}-stable_export_templates.tpz"
+          else
+            echo "No private toolchain release exists yet; downloading the official Godot 4.2.2 files from the TuxFamily mirror."
+            MIRROR_URL="https://downloads.tuxfamily.org/godotengine/${VERSION}"
 
-          curl --fail --location --retry 3 --retry-all-errors \
-            "${RELEASE_URL}/Godot_v${VERSION}-stable_export_templates.tpz" \
-            -o templates.tpz
+            curl --fail --location --retry 3 --retry-all-errors \
+              "$MIRROR_URL/Godot_v${VERSION}-stable_macos.universal.zip" \
+              -o "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_macos.universal.zip"
 
-          unzip -q godot.zip -d godot-app
-          unzip -q templates.tpz -d templates
+            curl --fail --location --retry 3 --retry-all-errors \
+              "$MIRROR_URL/Godot_v${VERSION}-stable_export_templates.tpz" \
+              -o "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_export_templates.tpz"
 
-          GODOT_APP=$(find godot-app -name "Godot.app" -type d | head -n 1)
+            # Validate both archives before storing them as reusable private release assets.
+            unzip -tq "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_macos.universal.zip"
+            unzip -tq "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_export_templates.tpz"
 
+            gh release create "$TOOLCHAIN_TAG" \
+              --repo "$GAME_REPO" \
+              --title "Godot ${VERSION} iOS build toolchain" \
+              --notes "Official Godot ${VERSION} macOS editor and export templates, cached for repeat iOS builds."
+
+            gh release upload "$TOOLCHAIN_TAG" \
+              "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_macos.universal.zip" \
+              "$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_export_templates.tpz" \
+              --repo "$GAME_REPO"
+          fi
+
+          GODOT_ZIP="$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_macos.universal.zip"
+          TEMPLATES_TPZ="$TOOLCHAIN_DIR/Godot_v${VERSION}-stable_export_templates.tpz"
+          if [ ! -s "$GODOT_ZIP" ] || [ ! -s "$TEMPLATES_TPZ" ]; then
+            echo "The private Godot toolchain release is missing one or more required assets."
+            exit 1
+          fi
+
+          unzip -q "$GODOT_ZIP" -d "$TOOLCHAIN_DIR/godot-app"
+          unzip -q "$TEMPLATES_TPZ" -d "$TOOLCHAIN_DIR/templates"
+
+          GODOT_APP=$(find "$TOOLCHAIN_DIR/godot-app" -name "Godot.app" -type d | head -n 1)
           if [ -z "$GODOT_APP" ]; then
-            echo "Godot.app not found."
+            echo "Godot.app not found in the downloaded editor archive."
             exit 1
           fi
 
           GODOT_BIN="$GODOT_APP/Contents/MacOS/Godot"
-
           TEMPLATE_DIR="$HOME/Library/Application Support/Godot/export_templates/${VERSION}.stable"
-
           mkdir -p "$TEMPLATE_DIR"
-          cp -R templates/templates/. "$TEMPLATE_DIR/"
+          cp -R "$TOOLCHAIN_DIR/templates/templates/." "$TEMPLATE_DIR/"
 
           echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
           echo "GODOT_VERSION=$VERSION" >> "$GITHUB_ENV"

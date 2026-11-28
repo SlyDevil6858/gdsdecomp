@@ -40,7 +40,7 @@ jobs:
             exit 0
           fi
 
-          BASE="https://downloads.tuxfamily.org/godotengine/${VERSION}"
+          BASE="https://downloads.godotengine.org/?flavor=stable&version=${VERSION}"
           EDITOR="Godot_v${VERSION}-stable_macos.universal.zip"
           TEMPLATES="Godot_v${VERSION}-stable_export_templates.tpz"
 
